@@ -1,7 +1,10 @@
-# 0050 投資研究 Dashboard v3.6：Growth 主排名＋防守資訊分離＋白話研究說明＋模型比較驗證
+# v40｜經典金融藍＋淺青色標題框：沿用 v38 功能分頁、台股紅漲綠跌；0050 以橘色實線呈現。
+# v34｜移除隔日 T+1 預測模組、歷史訊號驗證與讀取快取。
+# 保留原有 0010 選股、季度再平衡回測與 GARCH 波動研究；本版不改模型或美編。
+# 0010 Investment Research v3.6：Growth 主排名＋防守資訊分離＋白話研究說明＋模型比較驗證
 # Connect Cloud auto-publish test
 # ============================================================
-# 0050 Investment Research Dashboard
+# 0010 Investment Research
 # 第 1 段：資料、共用函數、UI
 # ============================================================
 
@@ -17,6 +20,8 @@ source("p10_model.R", local = TRUE)
 source("v4_score.R", local = TRUE)
 source("v4_ts.R", local = TRUE)
 source("v4_drawdown.R", local = TRUE)
+source("v5_backtest.R", local = TRUE)
+source("v5_garch_diag.R", local = TRUE)
 # ============================================================
 # 1. 基本設定
 # ============================================================
@@ -1454,15 +1459,15 @@ portfolio_default_start_date <- max(
 # 共用顏色
 # ============================================================
 
-UP_COLOR <- "#d95b5b"
-DOWN_COLOR <- "#4fa66a"
+UP_COLOR <- "#C04F58"   # 台股慣例：漲紅
+DOWN_COLOR <- "#278066" # 台股慣例：跌綠
 NEUTRAL_COLOR <- "#7b8794"
 
 # ============================================================
 # 代表色系統
 # ============================================================
 
-# 0050 固定使用中等藍色，其餘股票依固定順序產生代表色。
+# 0050 固定使用暖橘色，個股使用各自代表色；0010 組合比較固定用深藍色。
 # 因此只要股票代號相同，同一檔股票在所有圖形都會維持相同顏色。
 
 other_stock_symbols <-
@@ -1472,7 +1477,7 @@ other_stock_symbols <-
   )
 
 stock_colors <- c(
-  "0050" = "#5b8ecb"
+  "0050" = "#CF9448"
 )
 
 if (
@@ -1695,6 +1700,1077 @@ ui <- fluidPage(
         .term-chip { display:inline-block; padding:5px 9px; margin:3px; background:#f0f4fb; color:#6d6298; border-radius:999px; font-size:12px; font-weight:700; }
 
         .dashboard-footer { text-align:center; color:#8b99a8; font-size:13px; padding-top:22px; }
+
+        /* v8：首頁視覺微調，所有其他分頁樣式維持原樣 */
+        .v8-up { color:#337B65 !important; font-weight:800; }
+        .v8-down { color:#B45F65 !important; font-weight:800; }
+        .v8-flat { color:#5e7185 !important; }
+        .home-data-foot p { margin-bottom:5px; }
+        .home-intro .home-side { min-height:385px; }
+        @media (max-width:700px) { .home-intro .home-side { min-height:0; } }
+        /* v7 首頁：左右對照，只影響總覽新元件 */
+        .home-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
+        .home-heading h2 { margin:0; font-size:clamp(32px,2.8vw,40px); line-height:1.1; letter-spacing:1px; }
+        .home-date { color:#60758a; font-size:13px; white-space:nowrap; padding-top:6px; }
+        .home-qualifier { background:#f6f8fa; padding:12px 15px; border-radius:9px; font-size:13px; line-height:1.7; color:#556779; margin:16px 0 8px; }
+        .home-window { font-size:13px; color:#60758a; margin-bottom:14px; }
+        .home-compare-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(160px,1fr) minmax(0,2fr); gap:13px; }
+        .home-side { border:1px solid #dfe7ee; border-radius:13px; padding:18px 20px; min-width:0; }
+        .home-side-0010 { background:#eef5fc; border-color:#d6e5f3; }
+        .home-side-0050 { background:#fff5f1; border-color:#f1e0d9; }
+        .home-center { background:#f8fafc; text-align:center; padding-left:11px; padding-right:11px; }
+        .home-side h2 { font-size:34px; font-weight:800; text-align:center; margin:0 0 3px; }
+        .home-side-subtitle { text-align:center; color:#708092; font-size:12px; min-height:21px; margin:0 0 12px; }
+        .home-stat { border-top:1px solid rgba(130,148,168,.20); padding:9px 0; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+        .home-stat > span { font-size:13px; color:#677789; }
+        .home-stat > strong { font-size:32px !important; color:#34465a; white-space:nowrap; line-height:1.25; }
+        /* Shiny uiOutput() 會產生巢狀 span：顯示數字必須繼承 strong 的字級，而不是被標籤 span 的 13px 覆蓋。 */
+        .home-compare-grid .home-stat > strong span { font-size:inherit !important; line-height:inherit; }
+        .home-center h2 { font-size:34px; }
+        .home-center .home-stat { display:block; text-align:center; }
+        .home-center .home-stat > span { display:block; font-size:11px; margin-bottom:4px; }
+        .home-center .home-stat > strong { font-size:26px !important; }
+        /* 小螢幕才適度縮字，桌面及平板寬度不再強制蓋掉數值字體。 */
+        @media(max-width:700px) { .home-stat > strong { font-size:28px !important; } .home-center .home-stat > strong { font-size:24px !important; } }
+        /* v10：只影響「排名與分數／權重實驗」 */
+        .rank-lab .rank-lab-ratio { font-size:28px; font-weight:800; color:#395d80; margin:3px 0 7px; }
+        .rank-lab .rank-lab-hint { font-size:13px; color:#667a8e; line-height:1.7; }
+        .rank-lab .rank-lab-actions .btn { margin-right:6px; margin-bottom:8px; }
+        .rank-lab .rank-lab-formula { padding:12px 14px; border-radius:10px; background:#f2f6fa; margin:12px 0; }
+        .rank-lab .rank-lab-section { margin-top:25px; }
+        /* v12 排名第二頁：雙 Top10 長條圖＋可展開細項（只作用於此頁） */
+        .rank-compare .rank-compare-lead { color:#465c72; font-size:16px; font-weight:600; line-height:1.55; margin:0 0 13px; }
+        .rank-compare .rank-compare-date { margin:0 0 15px; }
+        .rank-compare .rank-compare-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start; }
+        .rank-compare .rank-compare-card { min-width:0; align-self:start; height:auto; border:1px solid #dce7f1; border-radius:14px; padding:17px 16px; background:#fff; display:flex; flex-direction:column; }
+        .rank-compare .rank-compare-card.momentum { border-top:4px solid #5289c0; background:#f9fcff; }
+        .rank-compare .rank-compare-card.risk { border-top:4px solid #d39651; background:#fffdf9; }
+        .rank-compare .rank-compare-card h3 { font-size:22px; font-weight:800; color:#30495e; margin:0 0 6px; }
+        .rank-compare .rank-compare-description { color:#597083; font-size:13px; margin:0 0 4px; line-height:1.5; }
+        .rank-compare .rank-compare-chart { flex:0 0 auto; min-width:0; padding:4px 0 2px; }
+        .rank-compare .rank-compare-chart .shiny-plot-output { max-width:100%; }
+        .rank-compare .rank-compare-hint { font-size:12px; color:#71869a; margin:2px 0 15px; line-height:1.5; }
+        .rank-compare details.rank-compare-expand { border:1px solid #cddce9; background:#fff; border-radius:10px; padding:0; margin-top:0; }
+        .rank-compare details.rank-compare-expand > summary { cursor:pointer; list-style:none; text-align:center; padding:11px 9px; color:#3b648b; font-size:14px; font-weight:750; border-radius:10px; }
+        .rank-compare details.rank-compare-expand > summary::-webkit-details-marker { display:none; }
+        .rank-compare details.rank-compare-expand > summary:after { content:' ▾'; }
+        .rank-compare details.rank-compare-expand[open] > summary:after { content:' ▴'; }
+        .rank-compare details.rank-compare-expand[open] > summary { border-bottom:1px solid #dce7f1; border-radius:10px 10px 0 0; }
+        .rank-compare .rank-compare-expanded { padding:13px 12px; min-width:0; overflow-x:auto; }
+        .rank-compare .rank-compare-expanded .table { font-size:12px; }
+        .rank-compare .rank-compare-expanded .table th, .rank-compare .rank-compare-expanded .table td { white-space:nowrap; }
+        .rank-compare .rank-compare-weight { background:#f1f5f9; border-radius:9px; padding:11px 13px; font-size:13px; color:#465e77; margin:0 0 14px; line-height:1.7; }
+        .rank-compare .rank-compare-section { font-size:14px; font-weight:800; color:#415e78; margin:9px 0 9px; }
+        .rank-compare .rank-compare-flow { margin:17px 0 0; padding:16px; border:1px solid #dfebf4; border-radius:12px; background:#f9fbfd; }
+        .rank-compare .rank-compare-flow h3 { font-size:16px; font-weight:800; margin:0 0 12px; }
+        .rank-compare .rank-compare-steps { display:flex; gap:9px; align-items:center; }
+        .rank-compare .rank-compare-step { flex:1; min-width:0; text-align:center; background:#fff; border:1px solid #e0e8f0; border-radius:9px; padding:11px 5px; }
+        .rank-compare .rank-compare-step strong { display:block; color:#385a79; font-size:14px; }
+        .rank-compare .rank-compare-step small { display:block; color:#738599; margin-top:4px; font-size:12px; }
+        .rank-compare .rank-compare-arrow { flex:none; color:#7f97aa; font-size:20px; font-weight:700; }
+        .rank-compare .rank-compare-note { color:#7a8996; font-size:12px; line-height:1.55; margin:12px 0 0; }
+        @media(max-width:980px) { .rank-compare .rank-compare-grid { grid-template-columns:1fr; } }
+        @media(max-width:570px) { .rank-compare .rank-compare-flow { padding:11px; } .rank-compare .rank-compare-steps { gap:4px; } .rank-compare .rank-compare-step { padding:8px 3px; } .rank-compare .rank-compare-step strong { font-size:12px; } .rank-compare .rank-compare-step small { font-size:10px; } .rank-compare .rank-compare-arrow { font-size:14px; } }
+        /* v10：僅限 0010 組合呈現，所有模型計算維持現況 */
+        .g10-v10-lead { color:#526b82; font-size:15px; line-height:1.6; margin:7px 0 17px; }
+        .g10-v10-flow { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0 0 23px; }
+        .g10-v10-flow-step { background:#f6f9fc; border:1px solid #e2eaf2; border-radius:11px; padding:13px 12px; }
+        .g10-v10-flow-step strong { display:block; color:#385b7c; font-size:14px; margin-bottom:5px; }
+        .g10-v10-flow-step small { display:block; font-size:12px; color:#6d8193; line-height:1.45; }
+        .g10-v10-title { font-size:21px; font-weight:800; color:#365471; margin:21px 0 12px; }
+        .g10-v10-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:11px; margin:8px 0 17px; }
+        .g10-v10-metric { border:1px solid #dce8f1; border-radius:12px; background:#f9fbfe; padding:14px 13px; min-width:0; }
+        .g10-v10-metric .g10-v10-label { display:block; color:#718396; font-size:12px; font-weight:700; }
+        .g10-v10-metric .shiny-text-output { display:block; color:#365c7c; font-size:25px; font-weight:800; margin-top:7px; white-space:nowrap; }
+        .g10-v10-main { display:grid; grid-template-columns:minmax(0,0.92fr) minmax(0,1.28fr); gap:15px; align-items:start; }
+        .g10-v10-panel { border:1px solid #e0e9f1; background:#fff; border-radius:13px; padding:15px 14px; min-width:0; }
+        .g10-v10-panel h4 { color:#405f7b; font-weight:750; font-size:16px; margin:0 0 10px; }
+        .g10-v10-panel .table { font-size:13px; }
+        .g10-v10-panel .table th,.g10-v10-panel .table td { white-space:nowrap; }
+        .g10-v10-panel .table-responsive { overflow-x:auto; }
+        .g10-v10-caption { color:#798a9c; font-size:12px; line-height:1.6; margin:10px 0 14px; }
+        details.g10-v10-expand { border:1px solid #dee8f1; border-radius:11px; background:#fcfdff; margin:12px 0; overflow:hidden; }
+        details.g10-v10-expand > summary { cursor:pointer; color:#446d95; font-weight:750; font-size:14px; padding:13px 16px; }
+        details.g10-v10-expand[open] > summary { border-bottom:1px solid #e3eaf1; }
+        .g10-v10-expand-body { padding:13px 16px 17px; overflow-x:auto; }
+        .g10-v10-note { background:#f5f8fb; border-left:4px solid #88accd; padding:12px 15px; color:#61778b; font-size:13px; line-height:1.65; border-radius:8px; margin:14px 0; }
+        .g10-v10-subtle { color:#72849a; font-size:13px; line-height:1.6; }
+        @media(max-width:1160px) { .g10-v10-main { grid-template-columns:1fr; } }
+        @media(max-width:750px) { .g10-v10-flow { grid-template-columns:1fr; } .g10-v10-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .g10-v10-metric .shiny-text-output { font-size:21px; } }
+        /* v11：0010 本期持股配置直接顯示於第一屏，長條由實際持股權重產生 */
+        .g10-v11-head { margin:4px 0 13px; }
+        .g10-v11-head h3 { color:#31516d; font-size:25px; font-weight:800; margin:0 0 7px; }
+        .g10-v11-head p { color:#677b8d; font-size:14px; margin:0; line-height:1.5; }
+        .g10-v11-layout { display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,1.25fr); gap:14px; align-items:start; margin:12px 0 9px; }
+        .g10-v11-pane { border:1px solid #dbe7f0; border-radius:14px; padding:16px; background:#fff; min-width:0; }
+        .g10-v11-pane h4 { margin:0 0 13px; color:#35536e; font-size:17px; font-weight:800; }
+        .g10-v11-row { display:grid; grid-template-columns:minmax(118px,1.2fr) minmax(60px,2fr) 55px; align-items:center; gap:8px; margin:9px 0; min-height:24px; }
+        .g10-v11-name { color:#365773; font-size:12px; line-height:1.35; overflow-wrap:anywhere; }
+        .g10-v11-track { height:15px; width:100%; border-radius:5px; background:#eef3f8; overflow:hidden; }
+        .g10-v11-fill { height:100%; border-radius:5px; background:#4a83bb; min-width:2px; }
+        .g10-v11-value { font-size:13px; font-weight:800; text-align:right; color:#315b7d; white-space:nowrap; }
+        .g10-v11-pane .table { font-size:12px; margin-bottom:5px; }
+        .g10-v11-pane .table td,.g10-v11-pane .table th { white-space:nowrap; }
+        .g10-v11-pane .table-responsive { overflow-x:auto; }
+        .g10-v11-subnote { color:#7b8c9e; font-size:12px; margin:10px 0 0; line-height:1.6; }
+        .g10-v11-minor { color:#778b9d; font-size:12px; margin:9px 0 13px; }
+        .g10-v11-metrics-title { color:#466480; font-size:17px; font-weight:750; margin:19px 0 10px; }
+        @media(max-width:1180px) { .g10-v11-layout { grid-template-columns:1fr; } }
+        @media(max-width:570px) { .g10-v11-head h3 { font-size:21px; } .g10-v11-pane { padding:12px; } .g10-v11-row { grid-template-columns:minmax(91px,1.1fr) minmax(48px,1.6fr) 47px; gap:5px; } .g10-v11-name,.g10-v11-value { font-size:11px; } }
+        /* v12：0010 子頁精簡排版。柔和藍灰＋暖色點綴，不修改其他頁面 */
+        .g10-v12 { --pf-ink:#344b60; --pf-muted:#697e90; --pf-line:#dce6ed; --pf-blue:#527fa8; --pf-warm:#c4a07c; color:var(--pf-ink); }
+        .g10-v12 .g10-v12-banner { display:flex; gap:16px; justify-content:space-between; align-items:center; padding:19px 22px; border:1px solid #dce7ef; border-radius:15px; background:linear-gradient(110deg,#f0f6fb 0%,#f7fafd 72%,#fbf7f2 100%); margin:0 0 16px; }
+        .g10-v12 .g10-v12-eyebrow { display:inline-block; font-weight:750; font-size:11px; letter-spacing:1px; color:#6f91ac; margin-bottom:6px; }
+        .g10-v12 .g10-v12-banner h3 { color:#2f526e; font-weight:800; font-size:25px; margin:0 0 7px; }
+        .g10-v12 .g10-v12-banner p { color:#6d8191; line-height:1.55; font-size:13px; margin:0; }
+        .g10-v12 .g10-v12-amount { background:#fff; border:1px solid #d9e5ee; border-radius:12px; padding:10px 14px; min-width:225px; width:240px; flex:none; box-shadow:0 2px 8px rgba(59,87,112,.035); }
+        .g10-v12 .g10-v12-amount .form-group { margin:0; }
+        .g10-v12 .g10-v12-amount label { font-size:12px; color:#59758d; font-weight:750; }
+        .g10-v12 .g10-v12-amount input { border-color:#bfd1e0; font-size:18px; font-weight:750; color:#315674; background:#fcfdff; height:39px; }
+        .g10-v12 .g10-v12-amount small { color:#8798a7; font-size:11px; display:block; margin-top:6px; line-height:1.4; }
+        .g10-v12 .g10-v12-top-grid { display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,.95fr); gap:14px; align-items:start; }
+        .g10-v12 .g10-v12-card { background:#fff; border:1px solid var(--pf-line); border-radius:14px; padding:17px 18px; min-width:0; }
+        .g10-v12 .g10-v12-card h4 { color:#365770; font-size:17px; font-weight:800; margin:0 0 9px; }
+        .g10-v12 .g10-v12-card-sub { color:#7e90a0; font-size:12px; margin:0 0 12px; line-height:1.6; }
+        .g10-v12 .g10-v12-weight-card { border-top:3px solid #85a7c4; }
+        .g10-v12 .g10-v11-row { grid-template-columns:minmax(120px,1.1fr) minmax(78px,2.1fr) 58px; margin:9px 0; }
+        .g10-v12 .g10-v11-track { background:#ebf1f6; }
+        .g10-v12 .g10-v11-fill { background:linear-gradient(90deg,#82a8c9,#527fa8); }
+        .g10-v12 .g10-v12-side { display:flex; flex-direction:column; gap:13px; min-width:0; }
+        .g10-v12 .g10-v10-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); margin:4px 0 0; gap:10px; }
+        .g10-v12 .g10-v10-metric { background:#f6f9fc; border-color:#e3ebf1; padding:14px 12px; }
+        .g10-v12 .g10-v10-metric:nth-child(3) { background:#f8f9f8; }
+        .g10-v12 .g10-v10-metric:nth-child(4) { background:#fbf8f4; }
+        .g10-v12 .g10-v10-metric .shiny-text-output { font-size:22px; }
+        .g10-v12 .g10-v12-mini-flow { background:#f7fafc; border:1px solid #e2e9ef; padding:13px 14px; border-radius:12px; }
+        .g10-v12 .g10-v12-mini-flow strong { display:block; font-size:12px; color:#54738e; margin-bottom:8px; }
+        .g10-v12 .g10-v12-steps { display:flex; align-items:center; gap:7px; }
+        .g10-v12 .g10-v12-steps span { border:1px solid #dee8ef; background:#fff; color:#547188; border-radius:7px; padding:7px 5px; flex:1; text-align:center; font-weight:700; font-size:12px; white-space:nowrap; }
+        .g10-v12 .g10-v12-steps i { color:#8ca6b7; font-size:14px; font-style:normal; }
+        .g10-v12 .g10-v12-table-card { margin-top:15px; border-top:3px solid #b2bfc9; }
+        .g10-v12 .g10-v12-table-wrap { overflow-x:auto; }
+        .g10-v12 .g10-v12-table-wrap .table { font-size:13px; margin:0; }
+        .g10-v12 .g10-v12-table-wrap .table th,.g10-v12 .g10-v12-table-wrap .table td { white-space:nowrap; padding:9px 11px; }
+        .g10-v12 .g10-v12-table-wrap .table > thead > tr > th { background:#f0f5f8; color:#48647e; border-bottom:2px solid #d5e2e9; }
+        .g10-v12 .g10-v12-table-wrap .table-striped > tbody > tr:nth-of-type(odd) { background:#fbfcfd; }
+        .g10-v12 .g10-v12-table-foot { font-size:12px; color:#8091a0; margin:11px 0 0; line-height:1.6; }
+        .g10-v12 .g10-v12-explore-title { color:#385773; font-weight:800; font-size:19px; margin:23px 0 5px; }
+        .g10-v12 .g10-v12-explore-lead { font-size:12px; color:#8393a0; margin-bottom:12px; }
+        .g10-v12 details.g10-v12-expand { border:1px solid #dce5ed; border-radius:12px; background:#fff; margin:11px 0; overflow:hidden; box-shadow:0 2px 7px rgba(49,76,101,.025); }
+        .g10-v12 details.g10-v12-expand > summary { display:flex; gap:13px; align-items:center; cursor:pointer; padding:15px 17px; list-style:none; background:#f8fafc; transition:background .18s ease; }
+        .g10-v12 details.g10-v12-expand > summary::-webkit-details-marker { display:none; }
+        .g10-v12 details.g10-v12-expand > summary:hover { background:#f0f6fa; }
+        .g10-v12 details.g10-v12-expand > summary:focus-visible { outline:2px solid #8eb3cf; outline-offset:-3px; }
+        .g10-v12 details.g10-v12-expand[open] > summary { background:#f2f7fa; border-bottom:1px solid #e0e9ef; }
+        .g10-v12 .g10-v12-summary-icon { display:flex; align-items:center; justify-content:center; width:35px; height:35px; border-radius:10px; flex:none; background:#e6eff6; color:#48739a; font-size:17px; font-weight:700; }
+        .g10-v12 .g10-v12-summary-icon.warm { background:#f4eee7; color:#a88763; }
+        .g10-v12 .g10-v12-summary-copy { flex:1; min-width:0; }
+        .g10-v12 .g10-v12-summary-copy strong { display:block; font-weight:800; color:#365770; font-size:14px; margin-bottom:3px; }
+        .g10-v12 .g10-v12-summary-copy small { display:block; font-size:12px; line-height:1.5; font-weight:400; color:#8192a2; }
+        .g10-v12 .g10-v12-chevron { color:#718ea5; font-size:20px; transform:rotate(0deg); transition:transform .18s; }
+        .g10-v12 details.g10-v12-expand[open] .g10-v12-chevron { transform:rotate(180deg); }
+        .g10-v12 .g10-v10-expand-body { padding:17px 19px 20px; }
+        .g10-v12 .g10-v10-note { margin-top:20px; }
+        @media(max-width:1080px) { .g10-v12 .g10-v12-top-grid { grid-template-columns:1fr; } }
+        @media(max-width:720px) { .g10-v12 .g10-v12-banner { flex-direction:column; align-items:stretch; padding:16px; } .g10-v12 .g10-v12-amount { width:100%; min-width:0; } .g10-v12 .g10-v12-card { padding:13px; } .g10-v12 .g10-v12-summary-copy small { font-size:11px; } }
+        /* v13：0010 組合資訊順序修正與更清晰的展開卡片；不影響其它頁面 */
+        .g10-v13 { --pf-ink:#344b60; --pf-line:#dce6ed; }
+        .g10-v13 .g10-v13-head { border-radius:14px; padding:19px 22px; margin:0 0 18px; background:linear-gradient(110deg,#edf4f9,#f8fafc 72%,#f8f6f2); border:1px solid #dbe5ed; border-left:5px solid #6d94b5; }
+        .g10-v13 .g10-v13-eyebrow { display:block; font-size:11px; font-weight:800; color:#6d91ac; letter-spacing:.7px; margin:0 0 5px; }
+        .g10-v13 .g10-v13-head h3 { color:#2e506d; font-size:24px; font-weight:800; margin:0 0 5px; }
+        .g10-v13 .g10-v13-head p { color:#6a7e90; font-size:13px; margin:0; line-height:1.6; }
+        .g10-v13 .g10-v13-block { background:#fff; border:1px solid #dce6ee; border-radius:13px; padding:17px 20px; margin:0 0 15px; min-width:0; box-shadow:0 3px 12px rgba(48,82,108,.04); }
+        .g10-v13 .g10-v13-block-top { display:flex; align-items:center; gap:9px; margin:0 0 12px; }
+        .g10-v13 .g10-v13-block-num { border-radius:6px; padding:5px 7px; background:#e7f0f7; color:#426c91; font-size:11px; font-weight:800; }
+        .g10-v13 .g10-v13-block h4 { color:#365a78; font-size:17px; font-weight:800; margin:0; }
+        .g10-v13 .g10-v13-block-sub { color:#7d90a1; font-size:12px; margin:0 0 13px; line-height:1.55; }
+        .g10-v13 .g10-v10-metrics { grid-template-columns:repeat(4,minmax(0,1fr)); gap:11px; margin:0; }
+        .g10-v13 .g10-v10-metric { background:#f4f8fb; border:1px solid #e1eaf1; border-radius:10px; padding:14px 15px; }
+        .g10-v13 .g10-v10-metric:nth-child(2) { background:#f1f6fa; }
+        .g10-v13 .g10-v10-metric:nth-child(3) { background:#f6f8f8; }
+        .g10-v13 .g10-v10-metric:nth-child(4) { background:#faf7f2; }
+        .g10-v13 .g10-v10-metric .shiny-text-output { font-size:25px; font-weight:800; color:#355d7f; }
+        .g10-v13 .g10-v13-config { border-left:4px solid #90b3c9; background:#fafcfe; }
+        .g10-v13 .g10-v13-config-grid { display:grid; grid-template-columns:minmax(175px,.85fr) minmax(195px,1fr) minmax(270px,1.25fr); gap:18px; align-items:start; }
+        .g10-v13 .g10-v13-config-grid .form-group { margin-bottom:4px; }
+        .g10-v13 .g10-v13-config-grid label { color:#45657f; font-size:13px; font-weight:750; }
+        .g10-v13 .g10-v13-config-grid input[type=number], .g10-v13 .g10-v13-config-grid select { border-color:#b7cddb; background:#fff; color:#2e516f; font-weight:750; height:38px; }
+        .g10-v13 .g10-v13-setup-foot { font-size:12px; color:#698195; border-top:1px dashed #d9e5ed; padding-top:11px; margin:10px 0 0; line-height:1.6; }
+        .g10-v13 .g10-v13-table { border-top:3px solid #7da2c0; }
+        .g10-v13 .g10-v13-table .g10-v12-table-wrap { overflow-x:auto; }
+        .g10-v13 .g10-v13-table .table { margin:0; min-width:790px; font-size:13px; }
+        .g10-v13 .g10-v13-table .table th, .g10-v13 .g10-v13-table .table td { white-space:nowrap; padding:10px 12px; vertical-align:middle; }
+        .g10-v13 .g10-v13-table .table thead th { background:#edf4f8; border-bottom:2px solid #bfd0df; color:#385c79; }
+        .g10-v13 .g10-v13-chart { background:#fbfcfe; }
+        .g10-v13 .g10-v11-row { grid-template-columns:minmax(150px,.85fr) minmax(160px,2.5fr) 70px; margin:10px 0; }
+        .g10-v13 .g10-v11-track { height:15px; }
+        .g10-v13 .g10-v11-fill { background:linear-gradient(90deg,#84aac8,#567da4); }
+        .g10-v13 .g10-v13-expand-heading { font-size:18px; color:#365a79; font-weight:800; margin:22px 0 5px; }
+        .g10-v13 .g10-v13-expand-sub { color:#8090a0; font-size:12px; margin:0 0 13px; }
+        .g10-v13 details.g10-v13-expand { margin:12px 0; border:1px solid #d5e2ed; border-left:5px solid #82a7c5; border-radius:13px; background:white; overflow:hidden; box-shadow:0 4px 12px rgba(56,86,110,.06); }
+        .g10-v13 details.g10-v13-expand.warm { border-left-color:#b49b7d; }
+        .g10-v13 details.g10-v13-expand > summary { display:flex; align-items:center; gap:15px; padding:17px 20px; background:#f4f8fb; list-style:none; cursor:pointer; transition:background .2s; }
+        .g10-v13 details.g10-v13-expand.warm > summary { background:#faf7f3; }
+        .g10-v13 details.g10-v13-expand > summary::-webkit-details-marker { display:none; }
+        .g10-v13 details.g10-v13-expand > summary:hover { background:#eaf3f9; }
+        .g10-v13 details.g10-v13-expand.warm > summary:hover { background:#f4ece4; }
+        .g10-v13 details.g10-v13-expand > summary:focus-visible { outline:3px solid #92bad5; outline-offset:-3px; }
+        .g10-v13 .g10-v13-exp-icon { display:flex; justify-content:center; align-items:center; width:43px; height:43px; flex:none; border-radius:12px; background:#dfeef7; color:#3f6f94; font-size:21px; font-weight:750; }
+        .g10-v13 .g10-v13-expand.warm .g10-v13-exp-icon { background:#f1e7da; color:#9d7c5b; }
+        .g10-v13 .g10-v13-exp-copy { min-width:0; flex:1; }
+        .g10-v13 .g10-v13-exp-copy strong { display:block; color:#2f516e; font-size:16px; font-weight:800; margin:0 0 4px; }
+        .g10-v13 .g10-v13-exp-copy small { display:block; color:#6e8294; font-size:12px; line-height:1.5; font-weight:450; }
+        .g10-v13 .g10-v13-exp-action { border:1px solid #a9c6d9; background:#fff; color:#3e7195; border-radius:9px; padding:8px 10px; white-space:nowrap; font-size:12px; font-weight:750; }
+        .g10-v13 .g10-v13-exp-action .when-open { display:none; }
+        .g10-v13 details.g10-v13-expand[open] > summary { border-bottom:1px solid #dce7ef; }
+        .g10-v13 details.g10-v13-expand[open] .g10-v13-exp-action { background:#e7f1f7; }
+        .g10-v13 details.g10-v13-expand[open] .g10-v13-exp-action .when-open { display:inline; }
+        .g10-v13 details.g10-v13-expand[open] .g10-v13-exp-action .when-closed { display:none; }
+        .g10-v13 details.g10-v13-expand .g10-v10-expand-body { padding:18px 21px 23px; }
+        @media(max-width:1000px) { .g10-v13 .g10-v13-config-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .g10-v13 .g10-v13-config-grid > div:last-child { grid-column:1 / -1; } }
+        @media(max-width:740px) { .g10-v13 .g10-v13-block { padding:14px; } .g10-v13 .g10-v10-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } .g10-v13 .g10-v13-config-grid { grid-template-columns:1fr; gap:9px; } .g10-v13 .g10-v13-config-grid > div:last-child { grid-column:auto; } .g10-v13 .g10-v11-row { grid-template-columns:minmax(90px,1fr) minmax(60px,1.6fr) 54px; gap:7px; } .g10-v13 .g10-v13-exp-action { padding:7px 8px; font-size:11px; } .g10-v13 .g10-v13-exp-copy strong { font-size:14px; } }
+        /* v14：持有追蹤的組合摘要與三種資金配置比較（只影響 0010 組合） */
+        .g10-v13 .g10-v14-summary-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:15px 0 18px; }
+        .g10-v13 .g10-v14-summary-card { background:#f6f9fc; border:1px solid #dfe8ef; border-radius:11px; padding:14px 16px; min-width:0; }
+        .g10-v13 .g10-v14-summary-card:nth-child(2) { background:#f8faf9; }
+        .g10-v13 .g10-v14-summary-card:nth-child(3) { background:#faf8f5; }
+        .g10-v13 .g10-v14-summary-card > span { display:block; font-size:12px; font-weight:700; color:#6a8294; margin-bottom:8px; }
+        .g10-v13 .g10-v14-summary-card .shiny-html-output { font-size:23px; font-weight:800; color:#395f7c; line-height:1.3; }
+        .g10-v13 .g10-v14-positive { color:#337B65 !important; }
+        .g10-v13 .g10-v14-negative { color:#B45F65 !important; }
+        .g10-v13 .g10-v14-title { margin:22px 0 8px; font-size:17px; font-weight:800; color:#375d7b; }
+        .g10-v13 .g10-v14-explain { margin:0 0 12px; font-size:12px; color:#718496; line-height:1.6; }
+        .g10-v13 .g10-v14-period { background:#f1f6fa; border:1px solid #e1e9ef; border-radius:8px; padding:10px 13px; color:#53738b; font-size:12px; line-height:1.6; }
+        .g10-v13 .g10-v14-summary-card .shiny-html-output:empty { min-height:30px; }
+        .g10-v13 .g10-v14-track-table .table { min-width:1100px; }
+        .g10-v13 .g10-v14-track-table .table tbody tr:last-child { background:#eaf3f9 !important; color:#345a78; font-weight:800; border-top:2px solid #9fbfd5; }
+        @media(max-width:760px) { .g10-v13 .g10-v14-summary-grid { grid-template-columns:1fr; } }
+        /* v24：全體樣本外 MAE 誤差幅度，比單純的勝出股票數多一個直觀尺度 */
+        .v15-validation .v24-error-interpretation { margin-top:5px; }
+        /* v23：模型驗證圖表的簡短讀圖提示 */
+        .v15-validation .v23-howto { font-size:12px; line-height:1.7; color:#566f83; background:#f7fafc; border-left:3px solid #a4bccc; border-radius:5px; padding:9px 12px; margin:7px 0 14px; }
+        .v15-validation .v23-howto strong { font-weight:750; color:#42627b; }
+        .v15-validation .v23-sample-note { background:#f6f8fa; border:1px solid #e2e9ef; border-radius:9px; color:#657f90; font-size:12px; padding:10px 13px; line-height:1.75; margin:10px 0 13px; }
+        /* v22：全體優先的樣本外模型比較；只影響模型驗證頁 */
+        .v15-validation .v22-block { border:1px solid #dbe6ee; border-radius:14px; padding:19px 20px; background:#fff; margin:13px 0 23px; }
+        .v15-validation .v22-top { border-top:4px solid #7e9fb8; background:linear-gradient(120deg,#f7fafc,#fff 62%); }
+        .v15-validation .v22-title { font-size:19px; font-weight:800; color:#355b76; margin:2px 0 7px; }
+        .v15-validation .v22-desc { font-size:13px; color:#6a7c8e; line-height:1.7; margin:0 0 14px; }
+        .v15-validation .v22-controls { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin:12px 0 16px; }
+        .v15-validation .v22-controls .btn { border-radius:9px; padding:10px 17px; }
+        .v15-validation .v22-note { font-size:12px; color:#72869a; line-height:1.65; }
+        .v15-validation .v22-kpis { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:12px 0 18px; }
+        .v15-validation .v22-kpi { border:1px solid #dee9f0; border-radius:11px; background:#f7fafc; padding:14px 16px; }
+        .v15-validation .v22-kpi-label { font-size:12px; color:#728398; margin-bottom:8px; }
+        .v15-validation .v22-kpi-num { font-size:22px; font-weight:800; color:#375f7d; line-height:1.2; }
+        .v15-validation .v22-kpi-desc { font-size:11px; color:#8797a5; margin-top:6px; }
+        .v15-validation .v22-all-note { background:#edf4f8; border-left:4px solid #88a9c1; border-radius:7px; padding:12px 14px; color:#42617a; font-size:13px; line-height:1.7; margin:12px 0; }
+        .v15-validation .v22-table-scroll { max-width:100%; overflow-x:auto; }
+        .v15-validation .v22-divider { border-top:1px solid #e3e9ee; margin:17px 0; }
+        @media(max-width:850px) { .v15-validation .v22-kpis { grid-template-columns:1fr; } .v15-validation .v22-block { padding:14px; } }
+        /* v15：模型驗證易讀版，樣式僅作用於 .v15-validation */
+        .v15-validation .v15-lead { color:#526d84; font-size:15px; line-height:1.65; margin:7px 0 18px; }
+        .v15-validation .v15-selector { border:1px solid #dfe9f2; border-radius:12px; padding:13px 16px 2px; background:#f7fafc; margin:0 0 18px; }
+        .v15-validation .v15-selector label { color:#395d79; font-weight:750; }
+        .v15-validation .v15-window-note { color:#698094; font-size:13px; line-height:1.6; padding:7px 0 12px; }
+        .v15-validation .v15-window-note strong { display:block; color:#466884; }
+        .v15-validation .v15-overview { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:15px; margin:8px 0 22px; }
+        .v15-validation .v15-result-card { border:1px solid #dce7ef; border-radius:13px; padding:16px 19px; min-width:0; background:#f9fbfd; }
+        .v15-validation .v15-result-primary { border-top:4px solid #7d9fbf; }
+        .v15-validation .v15-result-secondary { border-top:4px solid #b8a68c; background:#fcfbf9; }
+        .v15-validation .v15-result-kicker { font-size:12px; color:#6f8294; font-weight:800; margin-bottom:8px; }
+        .v15-validation .v15-key-number { display:block; color:#365d7d; font-size:22px; font-weight:800; line-height:1.4; }
+        .v15-validation .v15-key-copy { margin:6px 0 0; font-size:13px; color:#4d667a; line-height:1.65; }
+        .v15-validation .v15-card-foot { font-size:12px; line-height:1.55; color:#8392a0; margin:9px 0 0; }
+        .v15-validation .v15-evidence { border:1px solid #e0e9f0; border-radius:13px; padding:17px 19px; margin:0 0 17px; background:white; }
+        .v15-validation .v15-evidence h3 { margin:1px 0 9px; font-size:19px; }
+        .v15-validation .v15-plain-note { color:#71869a; font-size:13px; line-height:1.6; margin:7px 0 13px; }
+        .v15-validation .v15-footnote { color:#8696a5; font-size:12px; margin:7px 0 0; line-height:1.6; }
+        .v15-validation .v15-more-title { font-size:19px; margin:25px 0 8px; }
+        .v15-validation details.v15-detail { border:1px solid #d9e5ed; border-radius:12px; overflow:hidden; margin:11px 0; background:white; }
+        .v15-validation details.v15-detail > summary { display:flex; align-items:center; gap:14px; cursor:pointer; padding:16px 17px; list-style:none; background:#f6f9fc; }
+        .v15-validation details.v15-detail > summary::-webkit-details-marker { display:none; }
+        .v15-validation details.v15-detail > summary:hover { background:#edf5fa; }
+        .v15-validation details.v15-detail[open] > summary { border-bottom:1px solid #dfe8ef; }
+        .v15-validation .v15-detail-icon { flex:none; padding:9px 11px; font-weight:800; color:#577b9b; background:#e7eff6; border-radius:9px; font-size:13px; }
+        .v15-validation .v15-detail-copy { flex:1; min-width:0; }
+        .v15-validation .v15-detail-copy strong { display:block; color:#345773; font-size:15px; }
+        .v15-validation .v15-detail-copy small { display:block; color:#7a8ea0; font-size:12px; line-height:1.55; margin-top:3px; }
+        .v15-validation .v15-detail-action { flex:none; border:1px solid #c7d9e7; background:white; color:#557c9e; border-radius:8px; font-size:12px; padding:8px; font-weight:750; }
+        .v15-validation details.v15-detail[open] .v15-detail-action { background:#e6f0f6; }
+        .v15-validation details.v15-detail[open] .v15-detail-action::after { content:' ▴'; }
+        .v15-validation details.v15-detail:not([open]) .v15-detail-action::after { content:' ▾'; }
+        .v15-validation .v15-detail-body { padding:18px 20px 21px; }
+        .v15-validation .v15-detail-body h4 { color:#3e6380; margin:10px 0 12px; }
+        .v15-validation .v15-table-scroll { overflow-x:auto; }
+        .v15-validation .v15-scope-note { font-size:12px; color:#6c7e8d; background:#f8fafb; border-left:4px solid #a7bdcd; border-radius:8px; padding:12px 15px; line-height:1.7; margin-top:18px; }
+        @media(max-width:880px) { .v15-validation .v15-overview { grid-template-columns:1fr; } }
+        @media(max-width:560px) { .v15-validation details.v15-detail > summary { gap:9px; padding:13px 11px; } .v15-validation .v15-detail-action { font-size:11px; padding:6px; } .v15-validation .v15-detail-body { padding:13px; } .v15-validation .v15-evidence { padding:13px; } }
+        /* v16：單檔 GARCH 易讀版；僅作用於單檔頁 .g16-single */
+        .g16-single { --g16-ink:#34556f; --g16-mute:#728698; --g16-line:#dae6ee; }
+        .g16-single .g16-head { border:1px solid #dbe7ef; border-left:5px solid #7f9fbb; background:linear-gradient(100deg,#f1f7fb,#f9fbfc 72%,#fbf8f4); border-radius:13px; padding:17px 20px; margin:12px 0 16px; }
+        .g16-single .g16-eyebrow { font-size:11px; color:#668ba9; font-weight:800; letter-spacing:.8px; }
+        .g16-single .g16-head h3 { margin:6px 0; font-size:23px; font-weight:800; color:#315773; }
+        .g16-single .g16-head p { margin:0; font-size:13px; line-height:1.6; color:#6e8192; }
+        .g16-single .g16-controls { background:#fbfcfd; border:1px solid #e1eaf1; border-radius:12px; padding:14px 16px 3px; margin-bottom:15px; }
+        .g16-single .g16-controls label { color:#476780; font-size:13px; font-weight:750; }
+        .g16-single .g16-horizon { padding-top:4px; }
+        .g16-single .g16-horizon span,.g16-single .g16-horizon strong,.g16-single .g16-horizon small { display:block; }
+        .g16-single .g16-horizon span { color:#74899b; font-size:12px; }
+        .g16-single .g16-horizon strong { color:#355f7c; font-size:16px; margin:4px 0; }
+        .g16-single .g16-horizon small { color:#8598a6; font-size:11px; }
+        .g16-single .g16-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:11px; margin-bottom:14px; }
+        .g16-single .g16-kpi { background:#f5f9fc; border:1px solid #dce7f0; border-radius:12px; padding:14px; min-width:0; }
+        .g16-single .g16-kpi:nth-child(2) { background:#f8fafb; }
+        .g16-single .g16-kpi:nth-child(3) { background:#f8f9f7; }
+        .g16-single .g16-kpi-state { background:#fbf8f4; border-color:#ebe1d5; }
+        .g16-single .g16-kpi > span { display:block; color:#708698; font-size:12px; font-weight:700; }
+        .g16-single .g16-kpi > strong { display:block; margin:8px 0 6px; color:#355b79; font-size:24px; line-height:1.25; font-weight:800; overflow-wrap:anywhere; }
+        .g16-single .g16-kpi-state > strong { font-size:18px; }
+        .g16-single .g16-kpi > strong > .shiny-text-output { font-size:inherit !important; color:inherit; font-weight:inherit; display:inline; }
+        .g16-single .g16-kpi small { display:block; color:#8b9aa6; font-size:11px; line-height:1.5; }
+        .g16-single .g16-insight { border:1px solid #dce8f0; border-left:4px solid #759fbf; background:#f7fafc; padding:15px 18px; border-radius:11px; margin:0 0 19px; }
+        .g16-single .g16-insight-head { color:#385d7c; font-size:14px; font-weight:800; margin-bottom:5px; }
+        .g16-single .g16-insight-main { color:#365e7e; font-weight:800; font-size:17px; line-height:1.5; margin:4px 0; }
+        .g16-single .g16-insight-sub { color:#687e90; font-size:13px; line-height:1.65; margin:3px 0; }
+        .g16-single .g16-graph-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:15px; align-items:start; }
+        .g16-single .g16-graph-card { border:1px solid #dfe9f1; border-radius:12px; background:white; padding:15px 16px 8px; min-width:0; }
+        .g16-single .g16-graph-tag { color:#7193ad; font-size:11px; font-weight:800; }
+        .g16-single .g16-graph-card h4 { color:#385b78; font-size:17px; font-weight:800; margin:5px 0 7px; }
+        .g16-single .g16-graph-card p { color:#7f91a1; font-size:12px; line-height:1.6; min-height:38px; margin:0 0 5px; }
+        .g16-single .g16-graph-card .shiny-plot-output { max-width:100%; }
+        /* v17：每張 GARCH 圖後面的自動讀圖提示；不修改圖表本身 */
+        .g16-single .g17-reading { border:1px solid #d9e6ef; border-left:3px solid #91b0c7; border-radius:9px; background:#f5f9fc; padding:10px 12px; margin:4px 0 11px; }
+        .g16-single .g17-reading.g17-history { background:#faf8f4; border-color:#e8e0d5; border-left-color:#c7ae90; }
+        .g16-single .g17-reading-title { color:#365c77; font-size:12px; font-weight:800; margin:0 0 5px; }
+        .g16-single .g17-reading.g17-history .g17-reading-title { color:#78664d; }
+        .g16-single .g17-reading-line { color:#526f85; font-size:12px; line-height:1.6; margin:2px 0 3px; }
+        .g16-single .g17-reading.g17-history .g17-reading-line { color:#706f66; }
+        .g16-single .g17-reading-note { color:#8494a1; font-size:11px; line-height:1.6; margin:5px 0 0; }
+        .g16-single .g16-graph-card .g17-reading p { min-height:0; margin:0 0 4px; }
+        .g16-single .g16-graph-card .g17-reading .g17-reading-title { color:#365c77; font-weight:800; }
+        .g16-single .g16-graph-card .g17-reading.g17-history .g17-reading-title { color:#78664d; }
+
+        .g16-single .g16-foot { background:#fbfaf8; border-left:3px solid #c9b397; border-radius:7px; padding:11px 13px; color:#7a837f; font-size:12px; line-height:1.6; margin:12px 0 22px; }
+        .g16-single .g16-more-head { color:#375a77; font-size:19px; font-weight:800; margin:18px 0 5px; }
+        .g16-single .g16-more-lead { color:#7e91a0; font-size:12px; margin-bottom:12px; }
+        .g16-single details.g16-details { border:1px solid #dce7ef; border-radius:12px; overflow:hidden; background:white; margin:10px 0; }
+        .g16-single details.g16-details > summary { cursor:pointer; list-style:none; display:flex; gap:13px; align-items:center; background:#f5f9fc; padding:15px 17px; }
+        .g16-single details.g16-details > summary::-webkit-details-marker { display:none; }
+        .g16-single details.g16-details > summary:hover { background:#edf5fa; }
+        .g16-single details.g16-details > summary:focus-visible { outline:2px solid #8eb2cd; outline-offset:-2px; }
+        .g16-single details.g16-details[open] > summary { border-bottom:1px solid #dce7ef; }
+        .g16-single .g16-details-num { background:#e4eff6; color:#4c7391; font-weight:800; font-size:13px; padding:9px 11px; border-radius:9px; }
+        .g16-single .g16-details-copy { flex:1; min-width:0; }
+        .g16-single .g16-details-copy strong { display:block; color:#365a76; font-size:15px; font-weight:800; }
+        .g16-single .g16-details-copy small { display:block; color:#7d90a0; font-size:12px; line-height:1.5; margin-top:3px; }
+        .g16-single .g16-details-action { flex:none; color:#527a9c; background:white; border:1px solid #c9dce9; border-radius:8px; padding:7px 11px; font-weight:750; font-size:12px; }
+        .g16-single details.g16-details[open] .g16-details-action { background:#e8f1f7; }
+        .g16-single details.g16-details[open] .g16-details-action::after { content:' ▴'; }
+        .g16-single details.g16-details:not([open]) .g16-details-action::after { content:' ▾'; }
+        .g16-single .g16-details-body { padding:15px 18px 20px; }
+        .g16-single .g16-details-body p { color:#73879a; font-size:12px; line-height:1.65; margin-bottom:12px; }
+        .g16-single .g16-table-scroll { overflow-x:auto; }
+        @media(max-width:1180px) { .g16-single .g16-graph-grid { grid-template-columns:1fr; } }
+        @media(max-width:900px) { .g16-single .g16-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+        @media(max-width:600px) { .g16-single .g16-head { padding:14px; } .g16-single .g16-head h3 { font-size:20px; } .g16-single .g16-kpi { padding:11px; } .g16-single .g16-kpi > strong { font-size:21px; } .g16-single .g16-kpi-state > strong { font-size:16px; } .g16-single details.g16-details > summary { padding:12px; gap:9px; } .g16-single .g16-details-copy strong { font-size:13px; } .g16-single .g16-details-action { padding:6px; } }
+        /* v18：全體 GARCH / 季度回測易讀版。僅影響兩個既有子頁。 */
+        .g18-panel { padding:10px 0 14px; }
+        .g18-panel > h3 { color:#304f68; font-size:24px; font-weight:800; margin:8px 0 8px; }
+        .g18-panel > h4 { color:#365c78; font-size:18px; font-weight:750; margin:22px 0 10px; }
+        .g18-panel .g18-intro { color:#536e83; font-size:14px; line-height:1.7; margin:4px 0 17px; }
+        .g18-panel .g18-hint { color:#77899a; font-size:12px; line-height:1.65; margin:9px 0 13px; }
+        .g18-panel .g18-warning { background:#faf8f4; border-left:4px solid #c0ab8d; padding:11px 14px; border-radius:7px; color:#806f56; line-height:1.6; font-size:13px; margin:9px 0 18px; }
+        .g18-panel .g18-control-row { background:#f6f9fc; border:1px solid #dce7f0; border-radius:11px; margin:14px 0 17px; padding:13px 15px 2px; max-width:420px; }
+        .g18-panel .g18-control-row label { color:#3c607b; font-weight:750; }
+        .g18-panel .g18-stat-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin:17px 0 20px; }
+        .g18-panel .g18-stat { min-width:0; border:1px solid #dae5ec; border-top:3px solid #94b4cc; border-radius:11px; padding:13px 14px; background:#f7fafc; }
+        .g18-panel .g18-stat:nth-child(even) { background:#faf9f6; border-top-color:#baa68d; }
+        .g18-panel .g18-stat-label { display:block; color:#688092; font-size:12px; margin-bottom:6px; }
+        .g18-panel .g18-stat-value { display:block; color:#355b79; font-size:20px; font-weight:800; line-height:1.3; overflow-wrap:anywhere; }
+        .g18-panel .g18-stat-sub { display:block; color:#8494a0; font-size:11px; line-height:1.5; margin-top:4px; }
+        .g18-panel .g18-placeholder { border:1px dashed #cbdbe6; background:#f8fbfd; padding:20px; border-radius:10px; text-align:center; color:#72889a; font-size:13px; }
+        .g18-panel .g18-table-wrap { overflow-x:auto; width:100%; margin:8px 0 17px; }
+        .g18-panel .g18-table-wrap table { width:100%; }
+        .g18-panel details.g18-detail { border:1px solid #dbe7ee; border-radius:12px; margin:20px 0; background:white; overflow:hidden; }
+        .g18-panel details.g18-detail > summary { display:flex; align-items:center; gap:13px; list-style:none; cursor:pointer; padding:15px 16px; background:#f3f8fb; }
+        .g18-panel details.g18-detail > summary::-webkit-details-marker { display:none; }
+        .g18-panel details.g18-detail > summary:hover { background:#eaf2f8; }
+        .g18-panel details.g18-detail[open] > summary { border-bottom:1px solid #deebf1; }
+        .g18-panel .g18-detail-icon { background:#e4eff6; border-radius:8px; color:#557a96; font-weight:800; padding:9px 11px; }
+        .g18-panel .g18-detail-copy { flex:1; min-width:0; }
+        .g18-panel .g18-detail-copy strong { display:block; color:#365b78; font-size:15px; }
+        .g18-panel .g18-detail-copy small { display:block; color:#768b9d; line-height:1.6; font-size:12px; margin-top:3px; }
+        .g18-panel .g18-detail-action { font-size:12px; color:#527a99; font-weight:750; background:white; border-radius:7px; padding:7px 9px; white-space:nowrap; }
+        .g18-panel .g18-detail-content { padding:16px 18px 21px; }
+        /* v20：全體 GARCH 單色排名；季度回測樣式保持 v19。 */
+        .g19-all-garch .g19-all-chart { overflow-y:auto; max-height:880px; border:1px solid #e0e9f0; border-radius:10px; padding:7px 6px; background:#fff; }
+        /* v21：全體 GARCH 才有的獨立選項與閱讀提示，不影響單檔或回測。 */
+        .g21-all-garch .g21-setup { background:#f6f9fc; border:1px solid #dce7ef; border-radius:12px; padding:17px 17px 13px; margin:14px 0 12px; }
+        .g21-all-garch .g21-run-row { display:flex; flex-wrap:wrap; align-items:flex-end; gap:14px; }
+        .g21-all-garch .g21-window-control { width:350px; max-width:100%; }
+        .g21-all-garch .g21-window-control .form-group { margin-bottom:9px; }
+        .g21-all-garch .g21-window-control label { font-weight:750; color:#365b78; font-size:13px; }
+        .g21-all-garch .g21-run-action { padding-bottom:9px; }
+        .g21-all-garch .g21-setup-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:7px; }
+        .g21-all-garch .g21-setup-card { background:#fff; border:1px solid #e0e8ef; border-radius:9px; padding:10px 12px; min-width:0; }
+        .g21-all-garch .g21-setup-card > span { display:block; color:#6e8293; font-size:12px; }
+        .g21-all-garch .g21-setup-card > strong { display:block; color:#375b79; font-size:20px; line-height:1.4; margin:4px 0; }
+        .g21-all-garch .g21-setup-card small { display:block; color:#8293a0; font-size:11px; line-height:1.55; }
+        .g21-all-garch .g21-status { padding:10px 13px; border-radius:9px; font-size:12px; line-height:1.6; margin:12px 0 9px; }
+        .g21-all-garch .g21-status-ready { background:#eef5f7; color:#476d7b; border:1px solid #d4e4ea; }
+        .g21-all-garch .g21-status-pending { background:#faf7ef; color:#806e4a; border:1px solid #e9dec4; }
+        .g21-all-garch .g21-status-empty { background:#f7f9fb; color:#748495; border:1px solid #e2e9ef; }
+        .g21-all-garch .g21-reading { display:flex; gap:10px; align-items:baseline; background:#f5f9fc; border-left:3px solid #9cb9cf; padding:11px 13px; border-radius:6px; color:#536e82; font-size:13px; line-height:1.6; margin:12px 0; }
+        .g21-all-garch .g21-reading strong { color:#3b617d; white-space:nowrap; }
+        @media(max-width:650px) { .g21-all-garch .g21-setup-cards { grid-template-columns:1fr; } .g21-all-garch .g21-reading { display:block; } .g21-all-garch .g21-reading strong { display:block; margin-bottom:4px; } }
+        .g20-all-garch .g18-stat-grid { grid-template-columns:repeat(2,minmax(0,1fr)); max-width:740px; }
+        .g18-panel .g19-bt-stat-grid { grid-template-columns:repeat(5,minmax(0,1fr)); }
+        .g19-all-garch .g18-stat-value { font-size:19px; }
+        @media(max-width:1120px) { .g18-panel .g19-bt-stat-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+        @media(max-width:950px) { .g18-panel .g18-stat-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+        @media(max-width:550px) { .g18-panel .g18-stat-grid { grid-template-columns:1fr; } .g20-all-garch .g18-stat-grid { grid-template-columns:1fr; } .g18-panel .g19-bt-stat-grid { grid-template-columns:1fr; } .g18-panel .g18-stat-value { font-size:18px; } .g18-panel .g18-detail-copy small { font-size:11px; } }
+
+        /* v25｜首頁績效保持小於 0010 / 0050 標題，避免三欄互相擠壓 */
+        .home-compare-grid .home-stat > strong {font-size:25px !important; min-width:0; overflow-wrap:anywhere;}
+        .home-compare-grid .home-center .home-stat > strong {font-size:20px !important;}
+        .home-compare-grid .home-side h2 {font-size:34px;}
+        @media(max-width:700px){.home-compare-grid .home-stat > strong{font-size:24px !important;}.home-compare-grid .home-center .home-stat > strong{font-size:19px !important;}}
+
+        /* v26｜GARCH 第二層切換：放入獨立淺色區域，與市場分析主頁籤區隔 */
+        .v26-garch-panel {background:#f8fafc;border:1px solid #dce5ec;border-radius:12px;padding:17px 18px;margin:14px 0 20px;}
+        .v26-garch-intro {margin:0 0 14px;}
+        .v26-garch-intro h3 {font-size:18px;color:#3c5f79;font-weight:700;margin:0 0 7px;}
+        .v26-garch-intro p {font-size:12px;color:#697e8c;line-height:1.65;margin:0;}
+        .v26-garch-switch > .tabbable > ul.nav-pills {display:inline-flex;flex-wrap:wrap;gap:4px;background:#eaf0f4;padding:5px;border-radius:9px;margin:0 0 18px;float:none;}
+        .v26-garch-switch > .tabbable > ul.nav-pills > li {float:none;margin:0;}
+        .v26-garch-switch > .tabbable > ul.nav-pills > li > a {font-size:13px;font-weight:600;letter-spacing:0;padding:8px 17px;border-radius:7px;color:#54748b;background:transparent;border:0;}
+        .v26-garch-switch > .tabbable > ul.nav-pills > li.active > a,
+        .v26-garch-switch > .tabbable > ul.nav-pills > li.active > a:hover {background:#547f9d;color:#fff;}
+        .v26-garch-switch > .tabbable > .tab-content {clear:both;}
+        @media(max-width:650px){.v26-garch-panel{padding:13px 10px;}.v26-garch-switch > .tabbable > ul.nav-pills{display:flex;}.v26-garch-switch > .tabbable > ul.nav-pills > li > a{padding:8px 10px;font-size:12px;}}
+        .v25-main-lead{padding-top:19px;padding-bottom:14px;margin-bottom:13px;}
+        .v25-main-lead h2{font-size:23px;margin:0 0 8px;color:#315875;}
+        .v25-main-lead p{margin:0;color:#667b8d;line-height:1.75;font-size:13px;}
+        .v25-main-lead .v25-method-hint{margin-top:8px;}
+        .v25-method-hint{font-size:12px;color:#667f91;line-height:1.7;padding:8px 11px;background:#f5f8fb;border-left:3px solid #aac1d1;border-radius:5px;margin:10px 0;}
+        .v25-valid-rank h3{font-size:18px;color:#3b6280;margin:19px 0 10px;}
+        .v25-rank-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;margin:14px 0;}
+        .v25-rank-card{padding:13px 16px;border:1px solid #dce6ed;background:#f7fafc;border-radius:10px;}
+        .v25-rank-card small{display:block;color:#6b8293;font-size:12px;line-height:1.45;}
+        .v25-rank-card strong{display:block;font-size:21px;color:#375c78;margin:6px 0;}
+        .v25-rank-warning{font-size:12px;color:#846c56;line-height:1.7;background:#faf7f1;padding:11px 13px;border-radius:7px;margin-top:14px;}
+        .v25-validate-extra{margin:18px 0 22px;}
+        .v25-validate-extra > div{margin-top:12px;}
+        .v25-home-expand{margin:10px 0 20px;}
+        @media(max-width:750px){.v25-rank-grid{grid-template-columns:1fr;}}
+         /* v38：研究功能重組。只標示驗證頁研究章節，不更動任何預測或回測計算。 */
+         .v38-weight-section { margin:20px 0; padding:17px 20px; background:#fbfcfe; border:1px solid #dee6ed; border-radius:13px; }
+         .v38-weight-section > h3 { margin-top:2px; font-size:20px; }
+         .v38-weight-section > .rank-lab { background:transparent; padding:0; margin:0; box-shadow:none; border:0; }
+         .v25-validate-extra > h3 { margin:9px 0 13px; font-size:20px; }
+        .home-small-note { color:#7b8794; font-size:12px; margin:13px 0 0; }
+        .home-legacy { margin-top:4px; }
+        @media(max-width:900px) { .home-compare-grid { grid-template-columns:1fr; } .home-center { order:3; } .home-heading { flex-wrap:wrap; } .home-date { white-space:normal; } }
+
+        /* =======================================================
+           v35 VISUAL ONLY | E editorial + F bento + G quant tables
+           Mist blue-gray / muted green-red / consistent typography
+           ======================================================= */
+        :root {
+          --blue:#3E5870; --blue2:#7894AB; --purple:#8E92AC;
+          --green:#337B65; --red:#B45F65; --amber:#A88A63;
+          --ink:#253746; --muted:#6B7C8C; --bg:#F7F9FB;
+          --card:#FFFFFF; --line:#D8E0E7;
+          --g35-up-bg:#EAF4EE; --g35-down-bg:#F9EEEE;
+          --g35-shadow:0 3px 14px rgba(32,52,69,.045);
+        }
+        body {
+          background:#F7F9FB;
+          color:var(--ink); line-height:1.62;
+          font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft JhengHei','Noto Sans TC',sans-serif;
+          font-variant-numeric:tabular-nums;
+        }
+        .container-fluid {max-width:1500px;padding:23px 30px 48px;}
+        .hero {
+          background:linear-gradient(112deg,#F0F4F7 0%,#F6F8FA 68%,#FFFFFF 100%);
+          color:var(--ink); border:1px solid #D8E2E9;
+          border-left:5px solid #3E5870; border-radius:14px;
+          padding:25px 29px; margin-bottom:16px; box-shadow:none;
+        }
+        .dashboard-title {font-size:30px;font-weight:760;letter-spacing:-.45px;color:#253746;}
+        .dashboard-subtitle {font-size:14px;line-height:1.8;color:#637789;max-width:960px;}
+        .hero-badge {font-size:12px;font-weight:600;background:#FFFFFF;border:1px solid #DCE4EB;color:#6B7C8C;}
+        .nav-tabs {background:#FFFFFF;border:1px solid #E1E7EC;box-shadow:none;padding:5px;border-radius:11px;margin-bottom:18px;}
+        .nav-tabs > li > a {color:#617587;font-weight:650;padding:11px 17px;border-radius:8px;transition:background .15s ease;}
+        .nav-tabs > li > a:hover {background:#F0F4F7;color:#3E5870;}
+        .nav-tabs > li.active > a,.nav-tabs > li.active > a:hover,.nav-tabs > li.active > a:focus {
+          background:#3E5870;color:#FFFFFF;box-shadow:none;border-radius:8px;
+        }
+        .tabbable > .nav-pills {display:flex;flex-wrap:wrap;gap:5px;margin-bottom:17px;}
+        .tabbable > .nav-pills > li {float:none;margin:0;}
+        .tabbable > .nav-pills > li > a {background:#EDF2F5;color:#60798B;font-weight:620;border-radius:8px;padding:9px 16px;}
+        .tabbable > .nav-pills > li.active > a,.tabbable > .nav-pills > li.active > a:hover,.tabbable > .nav-pills > li.active > a:focus {
+          background:#3E5870;color:#FFFFFF;
+        }
+        .section-box {background:#FFFFFF;border:1px solid var(--line);border-radius:14px;padding:23px 25px;margin-bottom:17px;box-shadow:var(--g35-shadow);}
+        .section-box h2 {color:#2F4658;font-size:23px;letter-spacing:-.3px;font-weight:760;}
+        .section-box h3,.section-box h4 {color:#3E5870;}
+        .page-description {font-size:14px;color:#6B7C8C;line-height:1.75;}
+        .v25-main-lead {background:transparent;border:none;box-shadow:none;padding:3px 2px 12px;margin-bottom:6px;}
+        .v25-main-lead h2 {color:#253746;font-size:24px;}
+        .v25-main-lead p {color:#6B7C8C;font-size:13px;}
+        .reading-guide,.plot-explanation,.v25-method-hint {background:#F3F6F8;border-left-color:#91A9BA;color:#536D7F;}
+        .method-note,.warning-note {background:#FCFAF5;border-color:#E6DCCB;border-left-color:#B7A083;color:#766950;}
+        .info-card {background:#FFFFFF;border:1px solid #E1E7EC;border-radius:12px;box-shadow:none;min-height:102px;padding:15px 17px;}
+        .info-card:hover {transform:none;box-shadow:0 3px 11px rgba(43,65,83,.05);}
+        .info-card-title {color:#718292;font-size:12px;font-weight:650;}
+        .info-card-value {color:#354E61;font-size:23px;font-weight:760;}
+        .accent-blue {border-top:3px solid #6E8AA1;}
+        .accent-purple {border-top:3px solid #9295A9;}
+        .accent-green {border-top:3px solid #79A38D;}
+        .accent-amber {border-top:3px solid #B6A180;}
+        .accent-red {border-top:3px solid #C7898B;}
+        .btn-primary,.btn-primary:focus {background:#3E5870;border-color:#3E5870;color:#fff;box-shadow:none;border-radius:8px;font-weight:650;}
+        .btn-primary:hover,.btn-primary:active {background:#304A60;border-color:#304A60;color:#fff;}
+        .quick-button-row .btn {border:1px solid #D5DFE7;background:#FFFFFF;color:#587188;border-radius:8px;}
+        .quick-button-row .btn:hover {background:#EDF3F7;border-color:#9CB2C3;color:#3E5870;}
+        .form-control,.selectize-input {border-color:#CCD9E2;border-radius:8px;box-shadow:none;}
+        .form-control:focus,.selectize-input.focus {border-color:#7798B1;box-shadow:0 0 0 2px rgba(62,88,112,.10);}
+        .table > thead > tr > th {background:#F1F5F7;color:#4D677B;border-bottom:1px solid #D8E2E9;font-weight:720;}
+        .table > tbody > tr > td {border-top-color:#E7EDF1;vertical-align:middle;}
+        .table-striped > tbody > tr:nth-of-type(odd) {background:#FBFCFD;}
+        .table-hover > tbody > tr:hover {background:#F1F6F9;}
+        .home-intro .home-side {min-height:0!important;}
+        .home-compare-grid {grid-template-columns:minmax(0,1fr) minmax(160px,.66fr) minmax(0,1fr);gap:12px;}
+        .home-side {background:#FFFFFF;border:1px solid #DDE6ED;border-radius:12px;padding:15px 19px;box-shadow:none;}
+        .home-side-0010 {background:#F2F6F9;border-color:#D8E3EA;border-top:3px solid #3E5870;}
+        .home-side-0050 {background:#F7F9FA;border-color:#E1E7EC;border-top:3px solid #91A6B5;}
+        .home-center {background:#FFFFFF;border-top:3px solid #C4D1DB;}
+        .home-heading h2 {color:#263D50;letter-spacing:-.5px;}
+        .home-stat {border-top:1px solid #E4EBF0;padding:10px 0;}
+        .home-stat > span {color:#667B8C;font-size:12px;}
+        .home-compare-grid .home-stat > strong {font-size:clamp(17px,1.65vw,24px)!important;letter-spacing:-.15px;}
+        .home-compare-grid .home-center .home-stat > strong {font-size:clamp(16px,1.45vw,21px)!important;}
+        .home-stat > strong span {font-weight:750;}
+        .home-qualifier {background:#F4F7F9;color:#627788;border-left:3px solid #9EB3C3;border-radius:7px;}
+        .v8-up,.g10-v13 .g10-v14-positive {color:#337B65!important;}
+        .v8-down,.g10-v13 .g10-v14-negative {color:#B45F65!important;}
+        .v8-flat {color:#3D5366!important;}
+        .g10-v13 .g10-v13-head,.g10-v12 .g10-v12-banner {background:linear-gradient(110deg,#EFF4F7,#FAFCFD);border-color:#DAE4EB;border-left-color:#6B889F;}
+        .g10-v13 .g10-v13-block,.g10-v12 .g10-v12-card {border-color:#DCE5EC;border-radius:12px;box-shadow:none;}
+        .g10-v13 .g10-v10-metric,.g10-v12 .g10-v10-metric {background:#F5F8FA!important;border-color:#E1E8ED;}
+        .g10-v13 .g10-v10-metric .shiny-text-output {color:#3E5870;}
+        .g10-v12 .g10-v11-fill,.g10-v13 .g10-v11-fill {background:#6587A0;}
+        .g10-v13 .g10-v13-block-num,.g10-v12 .g10-v12-summary-icon {background:#E7EEF3;color:#527087;}
+        .g10-v13 details.g10-v13-expand {box-shadow:none;border-color:#D9E3E9;border-left-color:#91A9BA;}
+        .rank-compare .rank-compare-card {border-color:#DDE6ED;background:#FFFFFF;}
+        .rank-compare .rank-compare-card.momentum {background:#F6F9FB;border-top-color:#6689A4;}
+        .rank-compare .rank-compare-card.risk {background:#FBFAF7;border-top-color:#B2A087;}
+        .g18-panel .g18-stat {background:#F7F9FA!important;border:1px solid #DDE6EC;border-top:3px solid #A5B6C2;border-radius:11px;}
+        .g18-panel .g18-stat:nth-child(even) {background:#F7F9FA!important;border-top-color:#A5B6C2;}
+        .g18-panel .g18-stat-label {color:#697F90;}
+        .g18-panel .g18-stat-value {color:#354E61;}
+        .g18-panel .g18-stat.g35-tone-positive {border-top-color:#70A58E;}
+        .g18-panel .g18-stat.g35-tone-positive .g18-stat-value {color:#337B65;}
+        .g18-panel .g18-stat.g35-tone-negative {border-top-color:#C78B8D;}
+        .g18-panel .g18-stat.g35-tone-negative .g18-stat-value {color:#B45F65;}
+        .g18-panel .g18-table-wrap {border:1px solid #E1E8ED;border-radius:10px;overflow-x:auto;}
+        .g18-panel .g18-table-wrap table {margin:0;min-width:710px;}
+        .g18-panel .g18-colored-table td,.g18-panel .g35-colored-table td {font-variant-numeric:tabular-nums;}
+        .g18-panel .g35-colored-table td.g35-number {font-weight:720;white-space:nowrap;}
+        .g18-panel .g35-colored-table td.g35-positive {color:#337B65;background:rgba(234,244,238,.35);}
+        .g18-panel .g35-colored-table td.g35-negative {color:#B45F65;background:rgba(249,238,238,.38);}
+        .g18-panel .g35-colored-table td.g35-neutral {color:#647789;}
+        .g18-panel .g35-colored-table th,.g18-panel .g35-colored-table td {padding:10px 12px;white-space:nowrap;}
+        .g18-panel .g35-colored-table th {font-size:12px;}
+        details.method-details {border-color:#E0E7ED;background:#FAFCFD;}
+        details.method-details summary {color:#496B83;}
+        .dashboard-footer {color:#8292A0;}
+        @media(max-width:1000px) {.container-fluid{padding:17px 17px 32px;}}
+        @media(max-width:900px) {.home-compare-grid{grid-template-columns:1fr;}.home-center{order:3;}}
+        /* ==============================================================
+           v37 | Graphite x muted sage / neutral editorial dashboard
+           Visual override only: no R calculations or UI identifiers changed.
+           1 structural brand hue + neutral surfaces; data colors are semantic.
+           ============================================================== */
+        :root {
+          --v37-ink:#293E42; --v37-main:#435F60; --v37-dark:#314B4C;
+          --v37-accent:#65867D; --v37-muted:#667773;
+          --v37-bg:#F5F6F4; --v37-soft:#EDF1EE;
+          --v37-white:#FFFFFF; --v37-border:#DDE5E1;
+          --v37-up:#357D65; --v37-down:#A9555B;
+          --v37-bench:#8CA3A7;
+          --blue:#435F60; --blue2:#77928A;
+          --green:#357D65; --red:#A9555B;
+          --ink:#293E42; --muted:#667773;
+          --bg:#F5F6F4; --card:#FFFFFF; --line:#DDE5E1;
+        }
+        body {
+          background:#F5F6F4; color:var(--v37-ink);
+          -webkit-font-smoothing:antialiased;
+        }
+        .container-fluid {max-width:1500px;}
+        /* Quiet brand header: typography instead of a heavy dark banner. */
+        .hero {
+          position:relative; background:#F0F3EF; color:#293E42;
+          border:1px solid #D7E2DC; border-left:4px solid #54766D;
+          border-radius:13px; box-shadow:none; padding:25px 29px;
+          margin-bottom:17px;
+        }
+        .dashboard-title {
+          color:#293E42; font-size:29px; line-height:1.24;
+          letter-spacing:-.5px; font-weight:800; margin-bottom:8px;
+        }
+        .dashboard-subtitle {color:#62746F; font-size:14px; line-height:1.6; max-width:1000px;}
+        .hero-badge {
+          color:#48685F; background:#FFFFFF; border:1px solid #DDE6E0;
+          margin-top:13px; padding:5px 10px; box-shadow:none;
+        }
+        .hero-badge .shiny-text-output {color:#3E6058;}
+        /* A small amount of brand color marks the selected destination. */
+        .nav-tabs {background:#FFFFFF; border:1px solid #DEE5E1; box-shadow:none;
+                   border-radius:12px; padding:7px; margin-bottom:19px;}
+        .nav-tabs > li > a {color:#58706B; font-weight:700; border-radius:8px;}
+        .nav-tabs > li > a:hover {background:#EDF2EE; color:#304B48;}
+        .nav-tabs > li.active > a,
+        .nav-tabs > li.active > a:hover,
+        .nav-tabs > li.active > a:focus {
+          color:#FFFFFF; background:#435F60; box-shadow:none;
+        }
+        .tabbable > .nav-pills > li > a {
+          background:#F0F3F1; color:#4F6963; border-radius:8px; font-weight:650;
+        }
+        .tabbable > .nav-pills > li.active > a,
+        .tabbable > .nav-pills > li.active > a:hover,
+        .tabbable > .nav-pills > li.active > a:focus {background:#55776F;color:#FFFFFF;}
+        /* Article headings are marked by type scale and whitespace, not blocks. */
+        .section-box {
+          background:#FFFFFF; border:1px solid #DFE6E1; border-radius:13px;
+          box-shadow:0 2px 9px rgba(38,61,58,.028); margin-bottom:18px;
+        }
+        .section-box > h2 {
+          background:transparent; border:0; padding:0 0 10px;
+          border-radius:0; border-bottom:1px solid #E6ECE8;
+          margin:0 0 16px; color:#2D4545;
+          font-size:23px; letter-spacing:-.25px; line-height:1.4;
+        }
+        .section-box h3 {color:#435F60; font-weight:750;}
+        .section-box > h3 {border:0; border-bottom:1px solid #E9EEEA; padding-bottom:8px;}
+        .section-box h4 {color:#3E5B57;}
+        .page-description {color:#697A77; font-size:14px; line-height:1.65;}
+        .v25-main-lead {
+          background:#F0F3EF; border:1px solid #DEE7E0;
+          border-left:4px solid #6C9184; border-radius:12px;
+          box-shadow:none; padding:19px 22px; margin-bottom:17px;
+        }
+        .v25-main-lead h2 {color:#2C4745; font-size:23px; margin-bottom:7px;}
+        .v25-main-lead p {color:#657873; font-size:13px;}
+        .reading-guide,.plot-explanation,.v25-method-hint,.home-qualifier {
+          background:#F3F6F3; color:#596F67;
+          border-left:3px solid #9DB6AB; border-radius:7px;
+        }
+        .method-note,.warning-note {background:#F9F7F2;border-color:#E9E3D8;
+                                   border-left:3px solid #B3A48D;color:#766E60;}
+        /* Uniform neutral cards; no decorative purple/yellow/green card backgrounds. */
+        .info-card {background:#FBFCFB;border:1px solid #DFE6E2;border-top:2px solid #8EA9A0;
+                    border-left:1px solid #DFE6E2;box-shadow:none;}
+        .info-card.accent-blue,.info-card.accent-purple,
+        .info-card.accent-green,.info-card.accent-amber,.info-card.accent-red {
+          background:#FBFCFB;border:1px solid #DFE6E2;
+          border-top:2px solid #8EA9A0;
+        }
+        .info-card:hover {box-shadow:0 3px 10px rgba(38,61,58,.045);transform:none;}
+        .info-card-title {color:#637B73; font-weight:720;}
+        .info-card-value {color:#344F4D; font-weight:790;}
+        .btn-primary,.btn-primary:focus {background:#435F60; border-color:#435F60; box-shadow:none;}
+        .btn-primary:hover,.btn-primary:active {background:#314B4C; border-color:#314B4C;}
+        .quick-button-row .btn {background:#FFFFFF;border-color:#D1DED8;color:#4D6A61;box-shadow:none;}
+        .quick-button-row .btn:hover {background:#F0F4F1;border-color:#AFC8BB;color:#344F49;}
+        .form-control,.selectize-input {border-color:#CBD9D1;color:#364D49;}
+        .form-control:focus,.selectize-input.focus {border-color:#658B7C;box-shadow:0 0 0 2px rgba(101,139,124,.13);}
+        .time-info {background:#F2F6F3;border-color:#E0E9E2;border-left:3px solid #96B3A5;color:#4D695D;}
+        /* Quant tables: legible heading, nearly white rows, restrained semantic tones. */
+        .table > thead > tr > th {background:#EAF0EC;color:#385950;border-bottom:1px solid #CDDCD2;font-weight:760;}
+        .table-striped > tbody > tr:nth-of-type(odd) {background:#FCFDFC;}
+        .table-hover > tbody > tr:hover {background:#F2F6F3;}
+        /* Portfolio comparison: subtle accents but one coordinated family. */
+        .home-heading {border-bottom:1px solid #E7ECE9;padding-bottom:12px;margin-bottom:13px;}
+        .home-heading h2 {color:#293E42;}
+        .home-window {background:#F0F4F1;border-radius:7px;padding:8px 11px;color:#56736B;}
+        .home-side {background:#FFFFFF;border:1px solid #DEE6E1;box-shadow:none;}
+        .home-side-0010 {background:#F3F7F4;border-top:3px solid #648D7F;border-color:#DAE6DE;}
+        .home-side-0050 {background:#F9FAF9;border-top:3px solid #91A8A7;border-color:#E0E7E4;}
+        .home-center {background:#FFFFFF;border-top:3px solid #C8D6CE;border-color:#E0E8E3;}
+        .home-side-0010 h2,.home-side-0050 h2,.home-center h2 {
+          background:transparent;color:#2D4746;padding:0;border-radius:0;
+        }
+        .home-side-0050 h2 {color:#617C7E;}
+        .home-center h2 {color:#526D66;}
+        .home-side-subtitle {color:#70817C;}
+        .home-stat {border-color:#E1E9E3;}
+        .home-stat > span {color:#637973;}
+        .home-stat > strong {color:#304B47;}
+        .home-qualifier {background:#F4F6F3;}
+        /* Semantic numbers: red/green mean measured performance, not decoration. */
+        .v8-up,.g10-v13 .g10-v14-positive {color:#357D65!important;}
+        .v8-down,.g10-v13 .g10-v14-negative {color:#A9555B!important;}
+        .v8-flat {color:#60746D!important;}
+        .g10-v13 .g10-v13-head,.g10-v12 .g10-v12-banner {
+          background:#F2F5F2;border:1px solid #E0E8E0;border-left:4px solid #6C9184;
+          box-shadow:none;
+        }
+        .g10-v13 .g10-v13-head h3,.g10-v12 .g10-v12-banner h3 {color:#2C4D46;}
+        .g10-v13 .g10-v13-block,.g10-v12 .g10-v12-card {border-color:#E0E7E2;box-shadow:none;}
+        .g10-v13 .g10-v13-block-top {background:#F0F4F1;border-radius:8px;padding:10px 12px;margin-bottom:12px;}
+        .g10-v13 .g10-v13-block h4 {color:#365650;}
+        .g10-v13 .g10-v13-block-num {background:#DFEAE3;color:#4A7161;}
+        .g10-v13 .g10-v10-metric,.g10-v12 .g10-v10-metric,
+        .g10-v13 .g10-v10-metric:nth-child(2),.g10-v13 .g10-v10-metric:nth-child(3),
+        .g10-v13 .g10-v10-metric:nth-child(4) {
+          background:#FAFCFA!important;border:1px solid #E0E8E1;
+          border-top:2px solid #9CB7A7;
+        }
+        .g10-v13 .g10-v10-metric .shiny-text-output {color:#354F49;}
+        .g10-v13 .g10-v13-config {background:#FDFEFD;border-left:3px solid #A0B8A9;}
+        .g10-v12 .g10-v11-fill,.g10-v13 .g10-v11-fill {background:#668D7D;}
+        .g10-v13 details.g10-v13-expand {box-shadow:none;border-color:#DFE7E2;border-left:3px solid #95B0A1;}
+        .g10-v13 details.g10-v13-expand > summary {background:#F3F6F3;}
+        .g10-v13 details.g10-v13-expand.warm {border-left-color:#A9B8AD;}
+        .g10-v13 details.g10-v13-expand.warm > summary {background:#F7F8F5;}
+        .rank-compare .rank-compare-card.momentum,
+        .rank-compare .rank-compare-card.risk {
+          background:#FBFCFB;border:1px solid #DFE7E2;border-top:3px solid #87A89B;
+        }
+        .rank-compare .rank-compare-card.risk {border-top-color:#9EACA8;}
+        .rank-compare .rank-compare-card h3 {color:#355C53;}
+        /* Backtest: return signs stay readable; every other number stays neutral. */
+        .g18-panel .g18-stat,.g18-panel .g18-stat:nth-child(even) {
+          background:#FBFCFB!important;border:1px solid #DEE6E0;
+          border-top:2px solid #A6BAAC;border-radius:10px;
+        }
+        .g18-panel .g18-stat-label {color:#637A72;font-weight:700;}
+        .g18-panel .g18-stat-value {color:#344C48;font-weight:780;}
+        .g18-panel .g18-stat.g35-tone-positive {background:#FBFCFB!important;border-top:2px solid #78A892;}
+        .g18-panel .g18-stat.g35-tone-positive .g18-stat-value {color:#357D65;}
+        .g18-panel .g18-stat.g35-tone-negative {background:#FBFCFB!important;border-top:2px solid #CC9599;}
+        .g18-panel .g18-stat.g35-tone-negative .g18-stat-value {color:#A9555B;}
+        .g18-panel .g18-table-wrap {border-color:#DAE5DD;box-shadow:none;}
+        .g18-panel .g35-colored-table th {background:#EAF0EC;color:#35584E;border-bottom:1px solid #C8DAD0;}
+        .g18-panel .g35-colored-table td.g35-positive {color:#357D65;background:#F1F8F2;}
+        .g18-panel .g35-colored-table td.g35-negative {color:#A9555B;background:#FBF2F2;}
+        .g18-panel .g35-colored-table td.g35-neutral {color:#586D67;background:transparent;}
+        .g18-panel .g18-control-row {background:#F4F7F4;border-color:#E0E9E1;}
+        .g16-single .g16-head {background:#F1F5F2;border-left-color:#91ADA1;border-color:#E0E8E0;}
+        .g21-all-garch .g21-setup,.v15-validation .v22-top {background:#F5F7F4;border-color:#E0E7E2;}
+        .v15-validation .v22-kpi {background:#FAFCFA;border-color:#DFE7E1;}
+        .v15-validation .v15-result-primary,.v15-validation .v15-result-secondary {
+          background:#FBFCFA;border-top-color:#91ACA0;
+        }
+        .v15-validation .v15-result-secondary {border-top-color:#B0BEB2;}
+        details.method-details {border-color:#E0E7E1;background:#F8FAF8;}
+        details.method-details summary {color:#42695A;}
+        details.method-details[open] {background:#FFFFFF;}
+        .dashboard-footer {color:#70817C;}
+        /* Responsive rhythm matches existing page layout. */
+        @media(max-width:900px) {.home-compare-grid {grid-template-columns:1fr;}.home-center {order:3;}}
+        @media(max-width:600px) {
+          .hero {padding:19px 16px;}
+          .dashboard-title {font-size:24px;}
+          .section-box > h2 {font-size:20px;}
+          .v25-main-lead {padding:15px;}
+          .g10-v13 .g10-v13-block-top {padding:9px 10px;}
+        }
+        @media(max-width:600px) {
+          .container-fluid{padding:12px 10px 28px;}
+          .hero{padding:19px 17px;border-radius:11px;}
+          .dashboard-title{font-size:24px;}
+          .section-box{padding:16px 14px;border-radius:11px;}
+          .nav-tabs>li>a{padding:9px 11px;font-size:12px;}
+          .home-compare-grid .home-stat>strong{font-size:21px!important;}
+          .home-compare-grid .home-center .home-stat>strong{font-size:19px!important;}
+          .g18-panel .g18-stat-grid{gap:8px;}
+          .g18-panel .g18-stat{padding:12px 13px;}
+        }
+
+
+        /* ================================================================
+           v39 | Classic financial blue: conservative real-dashboard styling.
+           Semantic colors are reserved for Taiwan market returns:
+           positive = muted red; negative = muted green.
+           Blue/orange identify 0010/0050, regardless of the return sign.
+           No changes to R calculations or the Shiny navigation structure.
+           ================================================================ */
+        :root {
+          --blue:#365F87; --blue2:#688BA9; --purple:#7086A6;
+          --ink:#283C50; --muted:#617587; --bg:#F4F7FA;
+          --card:#FFFFFF; --line:#DFE7EF;
+          --red:#C04F58; --green:#278066; --amber:#CF9448;
+          --v39-primary:#365F87; --v39-dark:#264460;
+          --v39-soft:#E6EEF5; --v39-bg:#F4F7FA;
+          --v39-0010:#365F87; --v39-0050:#CF9448;
+          --v39-positive:#C04F58; --v39-negative:#278066;
+        }
+        body {background:#F4F7FA; color:#283C50; line-height:1.6;}
+        .container-fluid {max-width:1500px;padding:21px 28px 44px;}
+        .hero {
+          background:linear-gradient(110deg,#EAF1F7 0%,#F7F9FB 72%,#FFFFFF 100%);
+          border:1px solid #D8E3ED; border-left:4px solid #365F87;
+          border-radius:13px; box-shadow:none; padding:22px 26px;
+        }
+        .dashboard-title {font-size:29px;font-weight:780;color:#223C56;letter-spacing:-.35px;}
+        .dashboard-subtitle {color:#5F758A;font-size:14px;max-width:1030px;}
+        .hero-badge {background:#FFFFFF;color:#637C90;border:1px solid #D7E2EB;}
+        /* Main nav is a calm white strip; only the active tab is blue. */
+        .nav-tabs {background:#FFFFFF;border:1px solid #DEE7EF;box-shadow:none;border-radius:11px;padding:5px;}
+        .nav-tabs>li>a {color:#567087;font-weight:690;border-radius:8px;}
+        .nav-tabs>li>a:hover {background:#EFF4F8;color:#315E87;}
+        .nav-tabs>li.active>a,.nav-tabs>li.active>a:hover,.nav-tabs>li.active>a:focus {
+          background:#365F87;color:#FFFFFF;box-shadow:none;
+        }
+        .tabbable>.nav-pills>li>a {background:#EDF3F8;color:#526E86;}
+        .tabbable>.nav-pills>li.active>a,.tabbable>.nav-pills>li.active>a:hover,.tabbable>.nav-pills>li.active>a:focus {
+          background:#365F87;color:#FFFFFF;
+        }
+        .section-box {background:#FFFFFF;border:1px solid #DFE7EF;border-radius:13px;
+                      box-shadow:0 2px 9px rgba(34,65,94,.04);margin-bottom:18px;}
+        .section-box>h2 {font-size:22px;color:#254764;border-bottom:1px solid #E1EAF1;
+                         margin:0 0 16px;padding:0 0 10px;}
+        .section-box h3,.section-box>h3,.section-box h4 {color:#365F87;border-color:#E4EBF2;}
+        .page-description {color:#687D8D;}
+        .v25-main-lead {background:#EFF4F8;border:1px solid #DCE7F0;border-left:4px solid #6B90AD;
+                        padding:18px 21px;border-radius:11px;margin-bottom:17px;}
+        .v25-main-lead h2 {color:#254764;}
+        .v25-main-lead p {color:#667D90;}
+        .reading-guide,.plot-explanation,.v25-method-hint,.home-qualifier {
+          background:#F2F6FA;color:#5B7389;border-left:3px solid #90ADC4;
+        }
+        .method-note,.warning-note {background:#FBF9F4;border-color:#EAE0D1;
+                                    border-left:3px solid #C0A681;color:#746A58;}
+        .info-card,.info-card.accent-blue,.info-card.accent-purple,
+        .info-card.accent-green,.info-card.accent-amber,.info-card.accent-red {
+          background:#FFFFFF;border:1px solid #DFE7EF;border-top:2px solid #86A4BC;box-shadow:none;
+        }
+        .info-card:hover {box-shadow:0 3px 11px rgba(34,65,94,.06);transform:none;}
+        .info-card-title {color:#6E8092;}
+        .info-card-value {color:#294963;}
+        .btn-primary,.btn-primary:focus {background:#365F87;border-color:#365F87;color:#FFFFFF;}
+        .btn-primary:hover,.btn-primary:active {background:#264460;border-color:#264460;color:#FFFFFF;}
+        .quick-button-row .btn {background:#FFFFFF;border-color:#D2DEE8;color:#4B6C86;}
+        .quick-button-row .btn:hover {background:#EDF4FA;border-color:#9DB6CB;color:#365F87;}
+        .form-control,.selectize-input {border-color:#CBD9E6;color:#2B4356;}
+        .form-control:focus,.selectize-input.focus {border-color:#6A95B6;box-shadow:0 0 0 2px rgba(54,95,135,.13);}
+        .time-info {background:#EFF5FA;border-color:#DCE8F1;border-left:3px solid #8AABC4;color:#496C87;}
+        .table>thead>tr>th {background:#EAF1F7;color:#315570;border-bottom:1px solid #C9D9E6;}
+        .table-striped>tbody>tr:nth-of-type(odd) {background:#FCFDFE;}
+        .table-hover>tbody>tr:hover {background:#F1F6FA;}
+        .home-heading {border-bottom:1px solid #E4ECF2;}
+        .home-heading h2 {color:#264763;}
+        .home-window {background:#EFF4F8;color:#57748B;}
+        .home-side {background:#FFFFFF;border:1px solid #DDE7EF;}
+        .home-side-0010 {background:#F3F8FC;border-top:3px solid #365F87;border-color:#D9E6F0;}
+        .home-side-0050 {background:#FFF9F2;border-top:3px solid #CF9448;border-color:#EDE1D1;}
+        .home-center {background:#FFFFFF;border-top:3px solid #A6BACB;border-color:#DFE7EF;}
+        .home-side-0010 h2,.home-side-0050 h2,.home-center h2 {color:#294B68;}
+        .home-side-0050 h2 {color:#9D702E;}
+        .home-stat {border-color:#E2E9EF;}
+        .home-stat>span {color:#64788B;}
+        .home-stat>strong {color:#29465E;}
+        /* One consistent Taiwan stock-market convention. */
+        .v8-up,.g10-v13 .g10-v14-positive {color:#C04F58!important;}
+        .v8-down,.g10-v13 .g10-v14-negative {color:#278066!important;}
+        .v8-flat {color:#566C7F!important;}
+        .g10-v13 .g10-v13-head,.g10-v12 .g10-v12-banner {
+          background:#F0F5FA;border:1px solid #DBE7F1;border-left:4px solid #7397B3;
+        }
+        .g10-v13 .g10-v13-head h3,.g10-v12 .g10-v12-banner h3 {color:#2A5274;}
+        .g10-v13 .g10-v13-block,.g10-v12 .g10-v12-card {border-color:#DFE8F0;}
+        .g10-v13 .g10-v13-block-top {background:#F1F6FA;}
+        .g10-v13 .g10-v13-block h4 {color:#315A7B;}
+        .g10-v13 .g10-v13-block-num {background:#E2EEF7;color:#365F87;}
+        .g10-v13 .g10-v10-metric,.g10-v12 .g10-v10-metric,
+        .g10-v13 .g10-v10-metric:nth-child(2),.g10-v13 .g10-v10-metric:nth-child(3),
+        .g10-v13 .g10-v10-metric:nth-child(4) {
+          background:#FAFCFE!important;border:1px solid #E0E8EF;border-top:2px solid #8EAFC8;
+        }
+        .g10-v13 .g10-v10-metric .shiny-text-output {color:#2B567A;}
+        .g10-v13 .g10-v13-config {background:#FDFEFF;border-left:3px solid #98B7CE;}
+        .g10-v12 .g10-v11-fill,.g10-v13 .g10-v11-fill {background:#537FA3;}
+        .g10-v13 details.g10-v13-expand {border-color:#DCE6EE;border-left:3px solid #88ABC5;}
+        .g10-v13 details.g10-v13-expand>summary {background:#F3F7FA;}
+        .g10-v13 details.g10-v13-expand.warm {border-left-color:#B7A18D;}
+        .g10-v13 details.g10-v13-expand.warm>summary {background:#FCF9F5;}
+        .rank-compare .rank-compare-card.momentum {background:#F6F9FC;border:1px solid #DEE8F0;border-top:3px solid #527FA2;}
+        .rank-compare .rank-compare-card.risk {background:#FCFAF7;border:1px solid #E9E2D8;border-top:3px solid #BE9B65;}
+        .rank-compare .rank-compare-card h3 {color:#315A79;}
+        .v38-weight-section {background:#F7FAFD;border-color:#DEE8F1;}
+        /* Use red/green only on numeric result cells, never for fixed identity series. */
+        .g18-panel .g18-stat,.g18-panel .g18-stat:nth-child(even) {
+          background:#FFFFFF!important;border:1px solid #DEE8F0;border-top:2px solid #8BAAC3;
+        }
+        .g18-panel .g18-stat-label {color:#64798D;}
+        .g18-panel .g18-stat-value {color:#2C4E69;}
+        .g18-panel .g18-stat.g35-tone-positive {border-top-color:#C97379;}
+        .g18-panel .g18-stat.g35-tone-positive .g18-stat-value {color:#C04F58;}
+        .g18-panel .g18-stat.g35-tone-negative {border-top-color:#6DA994;}
+        .g18-panel .g18-stat.g35-tone-negative .g18-stat-value {color:#278066;}
+        .g18-panel .g18-table-wrap {border-color:#D9E5EF;}
+        .g18-panel .g35-colored-table th {background:#EAF1F7;color:#335772;border-bottom:1px solid #CDDCE9;}
+        .g18-panel .g35-colored-table td.g35-positive {color:#BA4852;background:#FDF3F4;}
+        .g18-panel .g35-colored-table td.g35-negative {color:#25775F;background:#F1F8F4;}
+        .g18-panel .g35-colored-table td.g35-neutral {color:#506677;background:transparent;}
+        .g18-panel .g18-control-row {background:#F3F7FA;border-color:#DEE8F0;}
+        .g16-single .g16-head {background:#F0F5F9;border-left-color:#87A8C1;border-color:#DBE7EF;}
+        .g21-all-garch .g21-setup,.v15-validation .v22-top {background:#F4F8FB;border-color:#DFE9F1;}
+        .v15-validation .v22-kpi {background:#F9FBFD;border-color:#E0E8EF;}
+        .v15-validation .v15-result-primary {background:#F9FBFD;border-top-color:#7299B6;}
+        .v15-validation .v15-result-secondary {background:#FCFBF9;border-top-color:#BDA07B;}
+        .v26-garch-switch>.tabbable>ul.nav-pills {background:#E7EFF6;}
+        .v26-garch-switch>.tabbable>ul.nav-pills>li>a {color:#476C88;}
+        .v26-garch-switch>.tabbable>ul.nav-pills>li.active>a,
+        .v26-garch-switch>.tabbable>ul.nav-pills>li.active>a:hover {background:#365F87;color:#FFFFFF;}
+        details.method-details {background:#F8FAFC;border-color:#DBE6EF;}
+        details.method-details summary {color:#365F87;}
+        details.method-details[open] {background:#FFFFFF;}
+        .dashboard-footer {color:#728495;}
+        @media(max-width:650px) {
+          .container-fluid{padding:12px 10px 28px;}
+          .hero{padding:18px 16px;}
+          .dashboard-title{font-size:24px;}
+          .section-box{padding:15px 13px;}
+          .home-compare-grid{grid-template-columns:1fr;}
+        }
+
+
+        /* ================================================================
+           v40 | Classic blue + light-cyan editorial section headings.
+           Influenced by user-supplied illustrated stock-market report:
+           blue typography, clear label framing, turquoise underline motifs.
+           Purposefully avoids heavy full-width dark panels or multi-hue cards.
+           No changes to forecast, selection, or backtest calculations.
+           ================================================================ */
+        :root {
+          --v40-blue:#35658F;
+          --v40-blue-strong:#25537E;
+          --v40-cyan:#C7EDF0;
+          --v40-cyan-pale:#EAF7FA;
+          --v40-line:#CDDFE9;
+          --v40-bg:#F7FAFC;
+        }
+        body {background:#F7FAFC; color:#283C50;}
+        .hero {
+          background:linear-gradient(105deg,#FFFFFF 0%,#F3FAFD 76%,#EAF6FA 100%);
+          border:1px solid #CEE1EC; border-left:5px solid #3484B6;
+          border-radius:15px; padding:22px 25px;
+          box-shadow:0 4px 15px rgba(35,79,115,.045);
+        }
+        .dashboard-title {
+          display:table; max-width:100%; font-size:30px; font-weight:800;
+          letter-spacing:-.35px; line-height:1.38; color:#24517E;
+          padding:0 4px 2px;
+          background:linear-gradient(to top,#BDECF0 0%,#BDECF0 25%,transparent 25%);
+        }
+        .dashboard-subtitle {color:#556D82; font-size:14px; margin-top:7px;}
+        .hero-badge {background:#FFFFFF; border:1px solid #D6E7EF; color:#58738A;}
+        .nav-tabs {background:#E9F2F9; border:1px solid #D6E5EF; border-radius:13px; padding:6px;}
+        .nav-tabs>li>a {color:#315D85; border-radius:9px;}
+        .nav-tabs>li>a:hover {background:#DDEEF7; color:#24537B;}
+        .nav-tabs>li.active>a,.nav-tabs>li.active>a:hover,.nav-tabs>li.active>a:focus {
+          background:linear-gradient(135deg,#3D83BD,#2D6599); color:#FFFFFF;
+          box-shadow:0 2px 7px rgba(41,101,154,.16);
+        }
+        .section-box {
+          background:#FFFFFF; border:1px solid #DDE8F0; border-radius:13px;
+          box-shadow:0 3px 12px rgba(35,79,115,.035);
+        }
+        /* First-level page section: framed but not a heavy filled banner. */
+        .section-box>h2 {
+          display:block; font-size:22px; font-weight:800; color:#255985;
+          padding:11px 15px; margin:0 0 17px;
+          border:1px solid #CCE6ED; border-left:5px solid #3286B8;
+          border-radius:8px; background:linear-gradient(100deg,#E2F5F8,#F6FBFD 72%);
+        }
+        /* Smaller content headings: distinguish with a gentle cyan label. */
+        .section-box>h3,.g18-panel>h3,.g18-panel>h4,
+        .v38-weight-section>h3,.v25-validate-extra>h3 {
+          display:table; max-width:100%; font-weight:780; line-height:1.4;
+          color:#2D608A; background:#E9F6F9;
+          border-left:3px solid #56A9C8; border-radius:5px;
+          padding:7px 12px; margin-top:20px; margin-bottom:12px;
+        }
+        .section-box h4 {color:#365E7C;}
+        .v25-main-lead {
+          border:1px solid #D5E8F0; border-left:5px solid #3E8FB9;
+          background:linear-gradient(105deg,#F0F9FC,#FFFFFF);
+          border-radius:11px; box-shadow:none; padding:18px 21px;
+        }
+        .v25-main-lead>h2 {
+          display:table; background:linear-gradient(to top,#BDECF0 0%,#BDECF0 28%,transparent 28%);
+          border:0; padding:0 3px 2px; margin:0 0 8px; color:#255984;
+        }
+        .home-heading {border-bottom:0; padding-bottom:9px;}
+        .home-heading h2 {
+          display:table; font-size:30px; font-weight:800; color:#245782;
+          padding:0 3px 3px;
+          background:linear-gradient(to top,#C7F0F2 0%,#C7F0F2 27%,transparent 27%);
+        }
+        .home-compare-grid {gap:12px;}
+        .home-side-0010 {background:#F4F9FD; border-color:#CFE4F2; border-top:4px solid #356994;}
+        .home-side-0050 {background:#FFFBF5; border-color:#F0E3CC; border-top:4px solid #D49C4F;}
+        .home-center {border-color:#DAE6EE; border-top:4px solid #8DB9CF;}
+        .home-side {box-shadow:0 2px 9px rgba(35,79,115,.028);}
+        .info-card {border:1px solid #DEE8F0; border-top:3px solid #82B3D2;}
+        .info-card-title {color:#53738D;}
+        .info-card-value {color:#244F75;}
+        .g10-v13 .g10-v13-head,.g10-v12 .g10-v12-banner {
+          border:1px solid #CFE5EE; border-left:5px solid #3889B5;
+          background:linear-gradient(105deg,#EDF8FB,#FFFFFF);
+        }
+        .g10-v13 .g10-v13-block-top {
+          background:#E6F5F9; border-left:3px solid #459EC1;
+          border-radius:6px; padding:10px 11px;
+        }
+        .g10-v13 .g10-v13-block-num {background:#CCEAF4;color:#285B83;}
+        .g10-v13 .g10-v13-block h4 {color:#265B83;}
+        .rank-compare .rank-compare-card h3 {
+          display:table; max-width:100%;
+          background:linear-gradient(to top,#D1F0F3 0%,#D1F0F3 25%,transparent 25%);
+          color:#285A83; padding-right:6px;
+        }
+        .g18-panel .g18-table-wrap {border:1px solid #D4E5EE;border-radius:9px;}
+        .table>thead>tr>th,.g18-panel .g35-colored-table th {
+          background:#DFF0F6;color:#2B5B80;border-bottom:2px solid #BCD7E6;
+        }
+        .table-hover>tbody>tr:hover {background:#EFF8FB;}
+        .g18-panel .g18-stat,.g18-panel .g18-stat:nth-child(even) {
+          border:1px solid #D8E7EF; border-top:3px solid #84B3D0;
+          background:#FFFFFF!important;
+        }
+        .g18-panel .g18-stat.g35-tone-positive {border-top-color:#C97379;}
+        .g18-panel .g18-stat.g35-tone-negative {border-top-color:#6DA994;}
+        /* Keep Taiwanese sign semantics: red positive, green negative. */
+        .g18-panel .g35-colored-table td.g35-positive {color:#BC4653;background:#FDF3F4;}
+        .g18-panel .g35-colored-table td.g35-negative {color:#247E65;background:#F1F8F4;}
+        .v15-validation .v22-title,.g16-single .g16-head h3,
+        .v26-garch-intro h3,.rank-compare .rank-compare-flow h3 {
+          display:table; max-width:100%; color:#2E628B;
+          background:linear-gradient(to top,#CCEDF1 0%,#CCEDF1 28%,transparent 28%);
+          padding-right:4px;
+        }
+        details.method-details {background:#FAFDFE;border-color:#D9E8F0;}
+        details.method-details summary {color:#2F6D99;}
+        .btn-primary,.btn-primary:focus {background:#326E9E;border-color:#326E9E;}
+        .btn-primary:hover,.btn-primary:active {background:#235780;border-color:#235780;}
+        .form-control:focus,.selectize-input.focus {border-color:#60A2C5;}
+        @media(max-width:700px) {
+          .hero {padding:17px 15px;}
+          .dashboard-title {font-size:24px;}
+          .section-box>h2 {font-size:19px;padding:9px 10px;}
+          .section-box>h3,.g18-panel>h3,.g18-panel>h4 {display:block;font-size:17px;}
+          .home-heading h2 {font-size:26px;}
+          .g10-v13 .g10-v13-block-top {padding:8px;}
+        }
+
         "
         
       )
@@ -1704,10 +2780,10 @@ ui <- fluidPage(
   
   div(
     class = "hero",
-    div(class = "dashboard-title", "0050 投資研究 Dashboard"),
+    div(class = "dashboard-title", "0010 Investment Research"),
     div(
       class = "dashboard-subtitle",
-      "以日對數報酬為統計基礎，從成長／動能、風險、穩定性、不確定性與歷史驗證分析 0050 及其成分股。"
+      "想看本期選股與資金配置，直接進入 0010；想確認歷史表現、選股能力與波動預測誤差，請進入模型驗證。"
     ),
     span(
       class = "hero-badge",
@@ -1722,566 +2798,714 @@ ui <- fluidPage(
   # ==========================================================
   
   tabsetPanel(
-    
     id = "main_tabs",
-    
-    
-    # ========================================================
-    # 1. 總覽
-    # ========================================================
-    
-    tabPanel(
-      
+    type = "tabs",
+tabPanel(
       "總覽",
-      
-      # ======================================================
-      # v4 新增：本期 0010 —— 貼在 0050 總覽 的內容之前
-      # ======================================================
-      
-      div(
-        class = "section-box",
-        h2("本期 0010"),
-        p(class = "page-description",
-          "從 50 檔成分股中，以動能 70% ＋ 風險穩定 30% 選出 10 檔，每季更新一次。"),
-        
-        fluidRow(
-          column(3, div(class = "info-card",
-                        div(class = "info-card-title", "本期報酬"),
-                        h3(class = "info-card-value", textOutput("v4_k_ret", inline = TRUE)))),
-          column(3, div(class = "info-card",
-                        div(class = "info-card-title", "0050 同期"),
-                        h3(class = "info-card-value", textOutput("v4_k_bench", inline = TRUE)))),
-          column(3, div(class = "info-card",
-                        div(class = "info-card-title", "超額報酬"),
-                        h3(class = "info-card-value", textOutput("v4_k_excess", inline = TRUE)))),
-          column(3, div(class = "info-card",
-                        div(class = "info-card-title", "本期最大回撤"),
-                        h3(class = "info-card-value", textOutput("v4_k_mdd", inline = TRUE))))
-        ),
-        
-        h3("名單"),
-        tableOutput("v4_home_table"),
-        
-        h3("本期回撤"),
-        plotOutput("v4_home_dd", height = "360px"),
-        div(class = "plot-explanation", textOutput("v4_home_dd_text", inline = TRUE)),
-        
-        h3("10 檔權重與金額"),
-        tableOutput("v4_home_weight"),
-        p(class = "page-description", textOutput("v4_home_note", inline = TRUE))
+      div(class = "section-box home-intro",
+          div(class = "home-heading",
+              div(h2("0010 VS 0050"),
+                  p(class = "page-description", "自訂十檔組合與元大台灣50｜績效與風險對照")),
+              div(class = "home-date", "資料更新至：", textOutput("v7_home_date", inline = TRUE))),
+          div(class = "home-window", "共同比較期間：", textOutput("v7_home_period", inline = TRUE)),
+          div(class = "home-compare-grid",
+              div(class = "home-side home-side-0010",
+                  h2("0010"), p("自訂十檔投資組合", class = "home-side-subtitle"),
+                  div(class = "home-stat", span("持股回溯報酬"), strong(uiOutput("v7_10_ret", inline = TRUE))),
+                  div(class = "home-stat", span("年化報酬"), strong(uiOutput("v7_10_ann", inline = TRUE))),
+                  div(class = "home-stat", span("最大回撤"), strong(uiOutput("v7_10_mdd", inline = TRUE))),
+                  div(class = "home-stat", span("年化波動"), strong(uiOutput("v7_10_vol", inline = TRUE))),
+                  div(class = "home-stat", span("Sharpe 比率"), strong(uiOutput("v7_10_sharpe", inline = TRUE)))),
+              div(class = "home-side home-center",
+                  h2("VS"), p("0010 − 0050", class = "home-side-subtitle"),
+                  div(class = "home-stat", span("超額報酬"), strong(uiOutput("v7_diff_ret", inline = TRUE))),
+                  div(class = "home-stat", span("年化報酬差"), strong(uiOutput("v7_diff_ann", inline = TRUE))),
+                  div(class = "home-stat", span("最大回撤差"), strong(uiOutput("v7_diff_mdd", inline = TRUE))),
+                  div(class = "home-stat", span("年化波動差"), strong(uiOutput("v7_diff_vol", inline = TRUE))),
+                  div(class = "home-stat", span("Sharpe 差"), strong(uiOutput("v7_diff_sharpe", inline = TRUE)))),
+              div(class = "home-side home-side-0050",
+                  h2("0050"), p("元大台灣50 ETF", class = "home-side-subtitle"),
+                  div(class = "home-stat", span("持股回溯報酬"), strong(uiOutput("v7_50_ret", inline = TRUE))),
+                  div(class = "home-stat", span("年化報酬"), strong(uiOutput("v7_50_ann", inline = TRUE))),
+                  div(class = "home-stat", span("最大回撤"), strong(uiOutput("v7_50_mdd", inline = TRUE))),
+                  div(class = "home-stat", span("年化波動"), strong(uiOutput("v7_50_vol", inline = TRUE))),
+                  div(class = "home-stat", span("Sharpe 比率"), strong(uiOutput("v7_50_sharpe", inline = TRUE))))
+          ),
+          p(class = "home-small-note", "報酬數字：正向柔綠、負向柔紅。差額以百分點（pp）表示；風險指標不以正負代表好壞。"),
+          div(class = "home-qualifier",
+              "比較口徑：0010 為目前十檔名單及權重的本期回溯持有試算，非歷史各期實際選股績效；",
+              "未扣交易成本。完整的下一交易日進場、含成本季度策略回測請見「模型驗證 → 季度策略回測」。")
       ),
-      
-      div(
-        class = "section-box",
-        tags$details(
-          tags$summary("查看 50 檔完整分數與篩選結果"),
-          br(),
-          tableOutput("v4_all_table")
-        )
+      div(class = "section-box",
+          h2("0010 與 0050 累積報酬走勢"),
+          p(class = "page-description", "選擇任意日期範圍，兩者都從選定區間的首個共同交易日 0% 開始。0010 採目前持股與權重回溯試算，非歷史逐期回測。"),
+          dateRangeInput("v9_curve_range", "累積報酬圖｜選擇起訖日期：",
+                         start=max(data_min_date, data_max_date-365), end=data_max_date,
+                         min=data_min_date, max=data_max_date, format="yyyy-mm-dd", separator=" 至 ", language="zh-TW"),
+          textOutput("v9_curve_actual_range"),
+          plotOutput("v7_home_curve", height = "420px")),
+      tags$details(class = "method-details v25-home-expand", tags$summary("展開每日報酬波動對照"),
+div(class = "section-box",
+          h2("日對數報酬率｜0010 與 0050"),
+          p(class = "page-description", "兩圖使用同一組日期與共同縱軸尺度，可獨立於上方的累積報酬圖調整期間。0010 為目前持股與權重的回溯試算。"),
+          dateRangeInput("v9_daily_range", "日對數報酬圖｜選擇起訖日期：",
+                         start=max(data_min_date, data_max_date-126), end=data_max_date,
+                         min=data_min_date, max=data_max_date, format="yyyy-mm-dd", separator=" 至 ", language="zh-TW"),
+          textOutput("v9_daily_actual_range"),
+          fluidRow(
+            column(6, h3("0010｜日對數報酬率"), plotOutput("v8_p10_daily_log", height = "290px")),
+            column(6, h3("0050｜日對數報酬率"), plotOutput("v8_0050_daily_log", height = "290px"))
+          ))),
+      div(class = "section-box",
+          h2("0050 近期市場概況"),
+          fluidRow(
+            column(4, div(class = "info-card accent-blue", div(class = "info-card-title", "均線趨勢"), h3(class = "info-card-value", textOutput("market_0050_trend", inline = TRUE)))),
+            column(4, div(class = "info-card accent-purple", div(class = "info-card-title", "14 日 RSI"), h3(class = "info-card-value", textOutput("market_0050_rsi", inline = TRUE)))),
+            column(4, div(class = "info-card accent-amber", div(class = "info-card-title", "近期波動狀態"), h3(class = "info-card-value", textOutput("market_0050_vol_state", inline = TRUE))))
+          ),
+          fluidRow(
+            column(3, div(class = "info-card", div(class = "info-card-title", "0050 調整後價格"), h3(class = "info-card-value", textOutput("market_0050_price", inline = TRUE)))),
+            column(3, div(class = "info-card", div(class = "info-card-title", "0050 最新日對數報酬"), h3(class = "info-card-value", uiOutput("v8_market_log_return", inline = TRUE)))),
+            column(3, div(class = "info-card", div(class = "info-card-title", "年初至今報酬"), h3(class = "info-card-value", uiOutput("v8_market_ytd", inline = TRUE)))),
+            column(3, div(class = "info-card", div(class = "info-card-title", "50 檔漲跌家數"), h3(class = "info-card-value", textOutput("market_breadth", inline = TRUE))))
+          ),
+          tags$details(class = "method-details",
+                       tags$summary("變更市場觀察日期"),
+                       dateInput("market_observation_date", "市場觀察日期", value=data_max_date,
+                                 min=data_min_date, max=data_max_date, format="yyyy-mm-dd", language="zh-TW", weekstart=1)),
+          p(class = "home-small-note", "均線、RSI、波動狀態僅供描述市場，不是買賣訊號。")
       ),
-      
+      tags$details(class = "method-details v25-home-expand", tags$summary("展開成分股近 30 日漲跌排名"),
+div(class = "section-box",
+          h2("近 30 個交易日成分股漲跌幅"),
+          plotOutput("market_30d_return_ranking", height = "700px")
+      )),
+      div(class = "section-box",
+          h2("0010 本期持股與權重"),
+          tableOutput("v4_home_table"),
+          tags$details(class = "method-details",
+                       tags$summary("選股門檻（展開查看）"),
+                       tags$ul(
+                         tags$li("有效資料：至少 280 個交易日，不足者剔除。"),
+                         tags$li("風險穩定分：低於 20 分者剔除。"),
+                         tags$li("年化波動度：超過 90% 者剔除。"),
+                         tags$li("最大回撤：低於 −85% 者剔除。"),
+                         tags$li("單日 CVaR 95%：尾端損失超過 6% 者剔除。"),
+                         tags$li("產業分散：單一產業至多選取 3 檔。")
+                       ),
+                       p("以上為原選股模型設定，這次僅恢復顯示，不更改評分或篩選規則。"),
+                       tags$details(tags$summary("50 檔完整篩選結果"), tableOutput("v4_all_table"))),
+          tags$details(class = "method-details",
+                       tags$summary("權重與資金分配（展開查看）"),
+                       tableOutput("v4_home_weight")),
+          p(class = "home-small-note", "本頁的選股名單是目前評分結果，並非歷史各季度當時的名單。")
+      ),
+      div(class = "section-box home-data-foot",
+          h3("資料資訊"),
+          p("交易資料更新至：", textOutput("global_latest_date", inline=TRUE),
+            "｜股票數：", textOutput("global_stock_count", inline=TRUE),
+            "｜資料筆數：", textOutput("global_observation_count", inline=TRUE)),
+          p(class = "home-small-note", "統計研究與歷史資料試算，非投資建議。")
+      )
+    ),
+
+tabPanel("0010 組合",
+      div(class="section-box v25-main-lead",
+        h2("0010｜本期選股與資金配置"),
+        p("只想知道目前選了哪 10 檔、怎麼配置，就看這裡。選股的歷史準確性請到『模型驗證』查看。")),
+      tabsetPanel(id="v25_portfolio_tabs",type="pills",
+tabPanel(
+            "本期持股與配置",
+            br(),
+            div(class = "g10-v12 g10-v13",
+              div(class = "g10-v13-head",
+                span(class = "g10-v13-eyebrow", "0010 / PORTFOLIO"),
+                h3("本期 0010｜持股與統計評分"),
+                p("先看評分和資金配置，再往下看權重圖；進階分析可自由展開。")
+              ),
+              div(class = "g10-v13-block",
+                div(class = "g10-v13-block-top",
+                  span(class = "g10-v13-block-num", "01"),
+                  h4("本期統計摘要")
+                ),
+                div(class = "g10-v10-metrics",
+                  div(class = "g10-v10-metric",
+                    span(class = "g10-v10-label", "本期入選股票"),
+                    textOutput("g10_v10_count")),
+                  div(class = "g10-v10-metric",
+                    span(class = "g10-v10-label", "配置加權動能分"),
+                    textOutput("g10_v10_mom")),
+                  div(class = "g10-v10-metric",
+                    span(class = "g10-v10-label", "配置加權風險分"),
+                    textOutput("g10_v10_risk")),
+                  div(class = "g10-v10-metric",
+                    span(class = "g10-v10-label", "最大單檔權重"),
+                    textOutput("g10_v10_maxw"))
+                )
+              ),
+              div(class = "g10-v13-block g10-v13-config",
+                div(class = "g10-v13-block-top",
+                  span(class = "g10-v13-block-num", "02"),
+                  h4("本期資金配置｜直接調整")
+                ),
+                div(class = "g10-v13-config-grid",
+                  div(numericInput("g10_capital", "模擬投入金額（NT$）",
+                    value = 1000000, min = 100000, step = 100000)),
+                  div(selectInput("g10_scheme", "持股權重方式",
+                    choices = c("波動度反比" = "inv_vol", "等權重" = "equal",
+                                "分數加權" = "score"), selected = "inv_vol")),
+                  div(sliderInput("g10_cap", "單檔權重上限",
+                    min = 0.10, max = 0.30, value = 0.20, step = 0.01))
+                ),
+                p(class = "g10-v13-setup-foot",
+                  "變更金額會更新下方模擬持股金額及成本；變更配置方式／上限會更新本期權重，不會重新計算股票評分，也不會改動歷史季度回測。")
+              ),
+              div(class = "g10-v13-block g10-v13-table",
+                div(class = "g10-v13-block-top",
+                  span(class = "g10-v13-block-num", "03"),
+                  h4("本期選股結果｜完整評分")
+                ),
+                p(class = "g10-v13-block-sub", "只留一張完整表格：排名、股票、產業、0010 分、動能分、風險分、GARCH 比值、配置權重與模擬金額。"),
+                div(class = "g10-v12-table-wrap", tableOutput("g10_weights")),
+                p(class = "g10-v12-table-foot",
+                  "分數代表選股評價，不是預測漲幅。若尚未執行 GARCH 估計，比值可能顯示「—」；投入金額僅供模擬。")
+              ),
+              div(class = "g10-v13-block g10-v13-chart",
+                div(class = "g10-v13-block-top",
+                  span(class = "g10-v13-block-num", "04"),
+                  h4("十檔持股權重｜長條圖")
+                ),
+                p(class = "g10-v13-block-sub", "長條越長，代表該檔股票在本期 0010 配置的資金比例越高。"),
+                uiOutput("g10_v11_weight_bars")
+              ),
+              h4(class = "g10-v13-expand-heading", "延伸研究與操作"),
+              p(class = "g10-v13-expand-sub", "以下兩張卡片可以點擊展開；預設收合，不影響上方資金配置。"),
+              tags$details(class = "g10-v13-expand",
+                tags$summary(
+                  span(class = "g10-v13-exp-icon", "↔"),
+                  span(class = "g10-v13-exp-copy",
+                    strong("本季換股與交易成本"),
+                    tags$small("看本次換了哪些股票、換手率、交易費用，以及下一次再平衡日期")),
+                  span(class = "g10-v13-exp-action",
+                    span(class = "when-closed", "展開查看 ▾"),
+                    span(class = "when-open", "收合內容 ▴"))
+                ),
+                div(class = "g10-v10-expand-body",
+                  h3("本期換股摘要"),
+                  fluidRow(
+                    column(3, div(class = "info-card",
+                      div(class = "info-card-title", "本次新納入"),
+                      h3(class = "info-card-value", textOutput("g10_n_new", inline = TRUE)))),
+                    column(3, div(class = "info-card",
+                      div(class = "info-card-title", "續抱"),
+                      h3(class = "info-card-value", textOutput("g10_n_hold", inline = TRUE)))),
+                    column(3, div(class = "info-card",
+                      div(class = "info-card-title", "本次剔除"),
+                      h3(class = "info-card-value", textOutput("g10_n_drop", inline = TRUE)))),
+                    column(3, div(class = "info-card",
+                      div(class = "info-card-title", "預估換手率"),
+                      h3(class = "info-card-value", textOutput("g10_turnover_est", inline = TRUE))))
+                  ),
+                  h3("交易成本試算"),
+                  tableOutput("g10_cost"),
+                  p(class = "g10-v10-subtle",
+                    "手續費 0.1425%（每筆最低 20 元）、證交稅 0.3%（僅賣出）、滑價 0.1%（既有假設）。"),
+                  h3("下一次再平衡"),
+                  uiOutput("g10_next_date")
+                )
+              ),
+              tags$details(class = "g10-v13-expand warm",
+                tags$summary(
+                  span(class = "g10-v13-exp-icon", "⌁"),
+                  span(class = "g10-v13-exp-copy",
+                    strong("上季持有追蹤與風險控制"),
+                    tags$small("查看持股變化、報酬、波動倍數，以及停損／停利參考價")),
+                  span(class = "g10-v13-exp-action",
+                    span(class = "when-closed", "展開查看 ▾"),
+                    span(class = "when-open", "收合內容 ▴"))
+                ),
+                div(class = "g10-v10-expand-body",
+                  p(class = "g10-v10-subtle",
+                    "「上季持有追蹤」使用最近一次已結束季度的選股名單（不一定與本期相同），從季末價格模擬持有到最新資料日；上方的配置方式與單檔上限會同步套用。"),
+                  uiOutput("g10_v14_track_period"),
+                  div(class = "g10-v14-summary-grid",
+                    div(class = "g10-v14-summary-card",
+                      span("組合累積報酬"), uiOutput("g10_v14_track_return")),
+                    div(class = "g10-v14-summary-card",
+                      span("模擬總損益"), uiOutput("g10_v14_track_profit")),
+                    div(class = "g10-v14-summary-card",
+                      span("目前模擬總市值"), uiOutput("g10_v14_track_value"))
+                  ),
+                  h4(class = "g10-v14-title", "同一批股票｜三種資金配置比較"),
+                  p(class = "g10-v14-explain",
+                    "固定選股名單、起始日期、投入金額與單檔上限，只比較資金分配方式。標記「目前」的是上方選用的配置。"),
+                  div(class = "g10-v12-table-wrap", tableOutput("g10_v14_track_compare")),
+                  h4(class = "g10-v14-title", "個股持有明細與停損／停利參考"),
+                  fluidRow(
+                    column(6, sliderInput("g10_k_stop", "停損倍數 k",
+                      min = 1, max = 3, value = 2, step = 0.1)),
+                    column(6, sliderInput("g10_k_take", "停利倍數 k",
+                      min = 2, max = 5, value = 3, step = 0.1))
+                  ),
+                  p(class = "g10-v14-explain",
+                    "起始權重會跟著上方配置設定改變；目前權重是持有期間價格變動後自然產生的比例。表格最後一列是組合合計。"),
+                  div(class = "g10-v12-table-wrap g10-v14-track-table", tableOutput("g10_track")),
+                  uiOutput("g10_track_note")
+                )
+              ),
+              div(class = "g10-v10-note",
+                strong("研究重點："),
+                "本期評分與配置顯示如何選股；是否有效，仍需在季度回測中用歷史資料驗證。")
+            )
+          ),
+tabPanel(
+          "選股評分",
+          div(
+            class = "section-box rank-compare",
+            h2("成分股排名與評分分析"),
+            p(class = "rank-compare-lead",
+              "從動能與風險兩個角度選股，再透過歷史回測檢驗排名的價值。"),
+            div(class = "time-info rank-compare-date", strong("評分日："),
+                textOutput("v6_rank_date", inline = TRUE),
+                "｜同一評分日各自排序，分數不是預測漲幅。"),
+            div(
+              class = "rank-compare-grid",
+              div(
+                class = "rank-compare-card momentum",
+                h3("動能分排名"),
+                p(class = "rank-compare-description", "尋找具有報酬延續潛力的候選股"),
+                div(class = "rank-compare-chart", plotOutput("rank_compare_mom_chart_v8", height = "490px")),
+                p(class = "rank-compare-hint", "依動能分由高至低排列；分數越高，代表過去的相對動能越強。"),
+                tags$details(
+                  class = "rank-compare-expand",
+                  tags$summary("查看動能評分細節與完整排名"),
+                  div(class = "rank-compare-expanded",
+                      div(class = "rank-compare-section", "評分組成"),
+                      div(class = "rank-compare-weight",
+                          "近 6 個月報酬百分位：55%", tags$br(),
+                          "12−1 個月動能百分位：45%"),
+                      div(class = "rank-compare-section", "完整成分股動能排名（不含產業欄）"),
+                      tableOutput("rank_compare_mom_detail"))
+                )
+              ),
+              div(
+                class = "rank-compare-card risk",
+                h3("風險穩定分排名"),
+                p(class = "rank-compare-description", "評估股票的歷史風險是否相對可控"),
+                div(class = "rank-compare-chart", plotOutput("rank_compare_risk_chart_v8", height = "490px")),
+                p(class = "rank-compare-hint", "依穩定分由高至低排列；分數越高，代表綜合風險評價較有利。"),
+                tags$details(
+                  class = "rank-compare-expand",
+                  tags$summary("查看風險評分細節與完整排名"),
+                  div(class = "rank-compare-expanded",
+                      div(class = "rank-compare-section", "評分組成"),
+                      div(class = "rank-compare-weight",
+                          "年化波動：30%｜最大回撤：25%", tags$br(),
+                          "CVaR：20%｜Sharpe：15%｜GARCH：10%"),
+                      div(class = "rank-compare-section", "完整成分股風險指標拆解"),
+                      tableOutput("v4_risk_decomp"),
+                      p(class = "rank-compare-note",
+                        "GARCH 尚未估計時沿用既有的中性 50 分設定；模型及計分方法未調整。"))
+                )
+              )
+            ),
+            div(
+              class = "rank-compare-flow",
+              h3("這些排名會用在哪裡？"),
+              div(class = "rank-compare-steps",
+                  div(class = "rank-compare-step", strong("動能＋風險"), tags$small("形成選股分數")),
+                  span(class = "rank-compare-arrow", "→"),
+                  div(class = "rank-compare-step", strong("組成 0010"), tags$small("評分＋風險門檻")),
+                  span(class = "rank-compare-arrow", "→"),
+                  div(class = "rank-compare-step", strong("歷史驗證"), tags$small("檢查排名是否有用")))
+            ),
+            p(class = "rank-compare-note",
+              "兩張榜單獨立排名，左右相同名次不一定是同一檔股票。排名是研究依據，不代表未來報酬保證。")
+          )
+        )
+)
+    ),
+
+tabPanel("模型驗證",
+      div(class="section-box v25-main-lead",
+        h2("0010｜研究驗證"),
+        p("季度績效、選股與權重敏感度、GARCH 波動預測及樣本外誤差集中在這裡；先看預測，再看可靠性。"),
+        p(class="v25-method-hint","季度勝率、選股排名命中率、GARCH 模型領先比例是不同指標，不能視為同一種準確率。")),
+      tabsetPanel(id="v25_validation_tabs",type="pills",
+tabPanel(
+            "季度策略回測",
+            div(class = "g18-panel",
+              h3("0010 季度再平衡回測"),
+              p(class = "g18-intro", "每季依當時資料選股、於次一交易日進場，觀察扣除成本後是否優於 0050。可按評分年度查看季度結果。"),
+              div(class = "g18-warning", "年份依「評分日」分組，不是日曆年度報酬；部分季度的成交至出場期間可能跨年。"),
+              actionButton("v5_run_bt", "執行完整季度回測", class = "btn-primary"),
+              p(class = "g18-hint", "只在按下按鈕時執行回測；後續切換年份直接篩選結果，不會重新運算。歷史波動風險依既有模型使用 EWMA（λ = 0.94），並非每季完整 GARCH 估計。"),
+              div(class = "g18-control-row",
+                selectInput("g18_bt_year", "查看評分年度", choices = c("全部年度" = "all"),
+                  selected = "all", width = "100%")
+              ),
+              uiOutput("g18_bt_summary"),
+              p(class = "g18-hint", "累積報酬差距＝0010 扣成本累積報酬－0050 同期累積報酬，單位為「百分點」；勝率則代表贏過 0050 的季度比例，兩者可能不同方向。"),
+              h4("各評分年度的 0010／0050 報酬"),
+              p(class = "g18-hint", "將同一評分年度內的季度報酬複利串接；不是按 1 月 1 日至 12 月 31 日計算。"),
+              plotOutput("g18_bt_year_plot", height = "330px"),
+              div(class = "g18-table-wrap", uiOutput("g18_bt_year_table")),
+              h4(textOutput("g18_bt_quarter_title", inline = TRUE)),
+              p(class = "g18-hint", "選定年度可查看該年度所有已完成回測季度；選「全部年度」時先顯示最近八季。"),
+              div(class = "g18-table-wrap", uiOutput("g18_bt_quarter_table")),
+              tags$details(class = "g18-detail",
+                tags$summary(
+                  span(class = "g18-detail-icon", "02"),
+                  span(class = "g18-detail-copy", tags$strong("完整績效、排名有效性與淨值曲線"),
+                       tags$small("Spearman IC、命中率、Sharpe、最大回撤、扣成本淨值與全部交易明細")),
+                  span(class = "g18-detail-action", "展開 ▾")
+                ),
+                div(class = "g18-detail-content",
+                  p(class = "g18-hint", "以下是原本的「全回測期間」指標與淨值，不隨年份選單改變；避免把局部年度與完整期間混淆。"),
+                  h4("原版排名指標（Spread 尚待修正）"),
+                  p(class="v25-rank-warning", "原版 Spread 的分組使用事後實際報酬，不能據此宣稱高分股票勝過低分股票。本版保留原回測結果不改公式；評估選股時請改看『選股有效性』的歷史實際名次與獨立排名比較。"),
+                  tableOutput("v5_bt_acc"),
+                  div(class = "plot-explanation", textOutput("v5_bt_result", inline = TRUE)),
+                  h4("全期間績效摘要"), tableOutput("v5_bt_stats"),
+                  h4("全期間淨值走勢（已扣成本）"), plotOutput("v5_bt_curve", height = "420px"),
+                  h4("完整交易明細"),
+                  div(class = "g18-table-wrap", tableOutput("v5_bt_log")),
+                  downloadButton("v5_bt_csv", "下載完整交易明細 CSV")
+                )
+              )
+            )
+          ),
+tabPanel(
+  "選股與權重驗證",
+  div(class="section-box v25-valid-rank",
+      h2("01｜歷史選股有效性｜選出來的股票，後來真的表現比較好嗎？"),
+      p(class="page-description", "比較歷史評分日選出的 0010 股票，與同一期其他可比較成分股的未來實際報酬名次。這不是拿已知漲幅回頭選股。"),
+      div(class="v25-method-hint", "先在『季度策略回測』按下執行；再回到這裡選擇歷史季度。評分只使用該評分日之前的資料，報酬從下一交易日的成交價算至該季出場日。"),
+      selectInput("v25_rank_quarter", "選擇要驗證的歷史評分季度", choices=c("請先執行季度策略回測"=""), width="100%"),
+      uiOutput("v25_rank_status"),
+      uiOutput("v25_rank_summary"),
+      h3("本季入選股票｜實際報酬相對排名"),
+      div(class="g18-table-wrap",tableOutput("v25_rank_selected")),
+      p(class="v25-method-hint", "『實際報酬排名』是按同一持有期間的調整後價格報酬由高到低排列；不含個別股票交易成本。選股評分排名與事後實際報酬名次是不同概念。"),
+      tags$details(class="method-details",
+        tags$summary("查看全部可比較成分股的未來報酬排名"),
+        div(class="g18-table-wrap",tableOutput("v25_rank_all")),
+        downloadButton("v25_rank_csv", "下載該季完整排名 CSV")),
+      p(class="v25-rank-warning", "研究限制：可比較範圍是目前 0050 成分股名單在該評分日具有效評分資料、且進出場日均有有效價格者，並非當年的歷史 0050 正式成分股名單；存在存活者偏誤。單季排名也不能直接代表長期選股能力。")
+  ),
+  div(class="v38-weight-section",
+    h3("02｜權重設定實驗｜目前選股會如何改變？"),
+    p(class="page-description", "此處僅調整研究用動能／風險比例，不會修改正式 0010 的權重或歷史回測。"),
+div(
+            class = "section-box rank-lab",
+            h4("權重設定與當期選股名單"),
+            p(class = "page-description",
+              "調整研究用動能／風險權重，觀察本期入選股票的變化；下方可接著檢查不同權重設定的歷史排名有效性。不影響正式 0010。"),
+            div(class = "time-info", strong("目前評分日："), textOutput("rank_lab_date", inline = TRUE),
+                "｜與前兩個排名使用同一批當期分數。"),
+            fluidRow(
+              column(8,
+                     sliderInput("rank_lab_mom_weight", "動能權重（剩餘為風險權重）",
+                                 min = 0, max = 100, value = 70, step = 5, post = "%")),
+              column(4,
+                     p("目前比例", class = "rank-lab-hint"),
+                     div(class = "rank-lab-ratio", textOutput("rank_lab_mix_text", inline = TRUE)))
+            ),
+            div(class = "rank-lab-actions",
+                actionButton("rank_lab_all_mom", "純動能 100／0"),
+                actionButton("rank_lab_all_risk", "純風險 0／100"),
+                actionButton("rank_lab_half", "各半 50／50"),
+                actionButton("rank_lab_default", "現行 70／30")),
+            div(class = "rank-lab-formula", strong("合成評分："),
+                textOutput("rank_lab_formula", inline = TRUE)),
+            p(class = "rank-lab-hint",
+              "沿用既有動能分、風險穩定分、風險門檻及產業上限（每產業最多 3 檔）。僅更換兩種分數的合成比例；GARCH 計分機制維持現況。"),
+            h3("這組權重會選出哪些股票？", class = "rank-lab-section"),
+            plotOutput("rank_lab_top10_plot", height = "390px"),
+            tableOutput("rank_lab_selected_table"),
+            tags$details(class = "method-details",
+                         tags$summary("展開完整排名與篩選理由"),
+                         tableOutput("rank_lab_full_table"))
+          )
+  ),
+  div(class="v25-validate-extra",
+    h3("03｜歷史訊號與權重敏感度（Spearman IC）"),
+    div(class="section-box rank-lab",
+      h3("多期選股排名有效性"),
+      p(class="page-description","以歷史評分而非事後報酬定義高低分組；這是選股訊號測試，不等於含交易成本的 0010 策略回測。"),
+      h3("排名的歷史有效性比較", class = "rank-lab-section"),
+            p(class = "page-description",
+              "比較純動能、純風險、各半、現行 70／30，以及目前自訂比例：每季依當時資料評分，下一交易日開始觀察未來 63 個交易日。"),
+            actionButton("rank_lab_run_history", "執行歷史比較", class = "btn-primary"),
+            div(style = "margin-top:12px;", textOutput("rank_lab_history_status")),
+            tableOutput("rank_lab_history_table"),
+            div(class = "plot-explanation",
+                "這是『排名訊號』的比較：Top 10 後續報酬與 Bottom 10 後續報酬都採等權平均，未扣交易成本；不是正式 0010 組合下一交易日進場、含成本的季度策略回測。",
+                tags$br(),
+                "IC 為當期分數與未來 63 日報酬的 Spearman 相關；Top10 − Bottom10 依當期評分排序，不使用未來報酬挑選 Bottom10。",
+                tags$br(),
+                "歷史分數在缺少各期 GARCH 預測時沿用既有中性 50 分設定；樣本依目前的 0050 成分股清單回溯，存在成分股存活者偏誤。")
+    )
+  )
+),
+
+tabPanel("GARCH 波動預測",
+          div(class="v26-garch-panel",
+            div(class="v26-garch-intro",
+              h3("GARCH｜未來波動預測"),
+              p("選擇單一股票查看預測走勢，或比較 0050 全體成分股的預測波動排名。")),
+            div(class="v26-garch-switch",
+tabsetPanel(id="v25_garch_tabs",type="pills",
+tabPanel(
+            "單檔預測",
+            div(class = "g16-single",
+              div(class = "g16-head",
+                span(class = "g16-eyebrow", "GARCH(1,1) · 單檔分析"),
+                h3("這檔股票，未來一季的波動可能怎麼變？"),
+                p("先比較預測與歷史波動，再查看走勢；統計參數與檢定結果可於下方展開。")
+              ),
+              div(class = "g16-controls",
+                fluidRow(
+                  column(5, selectInput("g10_stock", "選擇股票",
+                    choices = setNames(stock_info$symbol,
+                      paste0(stock_info$name, " (", stock_info$symbol, ")")),
+                    selected = "2330")),
+                  column(4, selectInput("g10_window", "估計資料期間",
+                    choices = c("近 2 年" = 500, "近 4 年" = 1000, "近 6 年" = 1500),
+                    selected = 1000)),
+                  column(3, div(class = "g16-horizon",
+                    span("預測範圍"),
+                    strong("未來 63 個交易日"),
+                    tags$small("約一季；非價格漲跌預測")))
+                )
+              ),
+              div(class = "g16-kpis",
+                div(class = "g16-kpi",
+                  span("未來一季預測年化波動"),
+                  strong(textOutput("g10_kpi_fvol", inline = TRUE)),
+                  tags$small("GARCH 模型預測")),
+                div(class = "g16-kpi",
+                  span("近一年歷史年化波動"),
+                  strong(textOutput("g10_kpi_rvol", inline = TRUE)),
+                  tags$small("作為比較基準")),
+                div(class = "g16-kpi",
+                  span("預測／歷史比值"),
+                  strong(textOutput("g10_kpi_ratio", inline = TRUE)),
+                  tags$small("大於 1 表示預測波動較高")),
+                div(class = "g16-kpi g16-kpi-state",
+                  span("波動狀態"),
+                  strong(textOutput("g10_kpi_regime", inline = TRUE)),
+                  tags$small("依現有 0.90／1.10 門檻判定"))
+              ),
+              div(class = "g16-insight",
+                div(class = "g16-insight-head", "這次的預測要怎麼看？"),
+                uiOutput("g16_one_summary")
+              ),
+              div(class = "g16-graph-grid",
+                div(class = "g16-graph-card",
+                  div(class = "g16-graph-tag", "01｜往後看"),
+                  h4("未來 63 日波動預測"),
+                  p("綠線為預測波動；紅色虛線為近一年歷史波動基準。"),
+                  plotOutput("g10_fan", height = "325px"),
+                  uiOutput("g17_forecast_readout")),
+                div(class = "g16-graph-card",
+                  div(class = "g16-graph-tag", "02｜往回看"),
+                  h4("模型與歷史波動對照"),
+                  p("藍線為 GARCH 配適波動，灰線為近 21 日的歷史波動估計。"),
+                  plotOutput("g10_vol_path", height = "325px"),
+                  uiOutput("g17_history_readout"))
+              ),
+              div(class = "g16-foot",
+                "波動代表價格起伏程度，不等於未來漲跌方向；本頁為模型估計，不代表投資建議。"
+              ),
+              h4(class = "g16-more-head", "完整統計資料"),
+              p(class = "g16-more-lead", "保留最大概似估計與診斷表。需要研究細節時，直接點開對應項目。"),
+              tags$details(class = "g16-details",
+                tags$summary(
+                  span(class = "g16-details-num", "01"),
+                  span(class = "g16-details-copy",
+                    tags$strong("查看模型參數｜ω、α、β 與波動持續性"),
+                    tags$small("最大概似估計值、標準誤、t 值與半衰期")),
+                  span(class = "g16-details-action", "展開")
+                ),
+                div(class = "g16-details-body",
+                  p("這一區說明模型如何描述波動的衝擊與延續；數值用來檢查估計結果，不是股票的預測報酬。"),
+                  div(class = "g16-table-scroll", tableOutput("g10_param_table"))
+                )
+              ),
+              tags$details(class = "g16-details",
+                tags$summary(
+                  span(class = "g16-details-num", "02"),
+                  span(class = "g16-details-copy",
+                    tags$strong("查看模型診斷｜殘差、收斂與風險值"),
+                    tags$small("Ljung-Box p 值、AIC／BIC、VaR／CVaR 等完整指標")),
+                  span(class = "g16-details-action", "展開")
+                ),
+                div(class = "g16-details-body",
+                  p("Ljung-Box 用來檢查標準化殘差是否仍有自相關；p 值大於 0.05 只代表沒有足夠證據拒絕無自相關假設，並非保證模型正確。"),
+                  div(class = "g16-table-scroll", tableOutput("g10_diag"))
+                )
+              )
+            )
+          ),
+tabPanel(
+            "全體波動排名",
+            div(class = "g18-panel g19-all-garch g20-all-garch g21-all-garch",
+              h3("0050 成分股｜未來一季波動預測"),
+              p(class = "g18-intro", "用過去的股價資料估計 GARCH，觀察未來一季哪些成分股的價格起伏可能較大。這裡比較的是風險，不是預測股價漲跌。"),
+              div(class = "g21-setup",
+                div(class = "g21-run-row",
+                  div(class = "g21-window-control",
+                    selectInput("g21_all_window", "歷史估計期間",
+                      choices = c("近 2 年（500 個交易日）" = 500,
+                                  "近 4 年（1,000 個交易日）" = 1000,
+                                  "近 6 年（1,500 個交易日）" = 1500),
+                      selected = 1000, width = "100%")),
+                  div(class = "g21-run-action",
+                    actionButton("g10_run_all", "執行全體 GARCH 估計", class = "btn-primary"))
+                ),
+                div(class = "g21-setup-cards",
+                  div(class = "g21-setup-card",
+                    span("準備使用的歷史資料"),
+                    strong(textOutput("g21_window_label", inline = TRUE)),
+                    tags$small("最多取所選交易日數的報酬；資料不足者使用可取得期間")),
+                  div(class = "g21-setup-card",
+                    span("預測未來"), strong("63 個交易日"),
+                    tags$small("約一季；波動以年化 % 表示，不是預測一年"))
+                )
+              ),
+              uiOutput("g21_all_status"),
+              uiOutput("g18_g_summary"),
+              h4("全體股票｜預測年化波動排名"),
+              div(class = "g21-reading",
+                tags$strong("這張圖怎麼看？"),
+                span("長條越長，代表模型預測未來一季的價格波動可能越劇烈；不是未來報酬排名，也不代表一定下跌。")),
+              uiOutput("g18_g_chart_box"),
+              p(class = "g18-hint", "圖表列出全部有效預測股票；歷史波動、比值及 GARCH 模型參數保留在下方展開區。個股波動不等於 0010 整體組合波動。"),
+              tags$details(class = "g18-detail",
+                tags$summary(
+                  span(class = "g18-detail-icon", "01"),
+                  span(class = "g18-detail-copy", tags$strong("完整 GARCH 參數與個股數據"),
+                       tags$small("查看所有估計結果的 ω、α、β、持續性、半衰期、預測／歷史波動與比值")),
+                  span(class = "g18-detail-action", "展開 ▾")
+                ),
+                div(class = "g18-detail-content",
+                  p(class = "g18-hint", "完整表格保留原本的參數與比值資訊；缺少足夠資料的股票可能顯示空值，這與上方圖表的有效股票數不同。"),
+                  div(class = "g18-table-wrap", tableOutput("g10_all_table"))
+                )
+              )
+            )
+          ))
+            )
+          )
+        ),
+tabPanel(
+      "波動預測誤差",
       div(
-        class = "section-box",
-        
-        h2("0050 總覽"),
-        
-        p(
-          class = "page-description",
-          "以 0050 為核心，快速掌握資料狀態、價格走勢、日對數報酬、風險與成分股近期表現。"
+        class = "section-box v15-validation",
+        h2("波動預測誤差｜哪種方法比較準？"),
+        p(class = "v15-lead",
+          "使用相同的樣本外比較規則，檢查 GARCH、EWMA 和 21 日滾動法的預測誤差。先看全體，再選個股深入分析。"),
+
+        div(class = "v22-block v22-top",
+          h3(class = "v22-title", "01｜全體模型比較"),
+          p(class = "v22-desc",
+            "比較目前 0050 成分股在樣本外期間的預測表現，觀察哪種方法在更多股票上誤差較小。"),
+          div(class = "v22-controls",
+            actionButton("v22_run_all_oos", "執行全體樣本外比較", class = "btn-primary"),
+            span(class = "v22-note", "按下後才執行；切換單檔股票不會重跑全體。")),
+          uiOutput("v22_all_status"),
+          uiOutput("v22_all_kpis"),
+          p(class = "v23-sample-note",
+            tags$strong("N／樣本數怎麼看？ "),
+            "『有效比較股票 N 檔』代表有 N 檔股票通過檢查，不是 N 個交易日。",
+            "每檔至少需要 601 筆有效價格：以前 80% 報酬估計，後 20% 留作樣本外測試（切分時至少 120 個交易日）；",
+            "仍需 GARCH 估計收斂，且三種方法的 RMSE、MAE、QLIKE 都有效，才算可比較。",
+            "這是本程式的資料門檻，不代表統計學上有通用的『足夠樣本數』。"),
+          h4("哪種方法在最多股票上預測誤差較小？"),
+          plotOutput("v22_all_qlike_plot", height = "255px"),
+          p(class = "v23-howto", tags$strong("這張圖怎麼看？ "),
+            "每根長條代表該方法在多少檔股票的 QLIKE 最低。",
+            "長條越長，表示這次測試在越多股票上領先；若有並列最低，不算進任何一種方法。"),
+          h4("整體預測誤差有多大？｜平均 MAE"),
+          plotOutput("v24_all_mae_plot", height = "245px"),
+          p(class = "v23-howto v24-error-interpretation", tags$strong("這張圖怎麼看？ "),
+            "MAE 比較模型預測的每日波動幅度，和當天實際 |日報酬| 相差多少個百分點；越低越好。",
+            "例如 MAE = 0.80，代表平均相差約 0.80 個百分點，不是 80% 的錯誤率或準確率。",
+            "先計算每檔股票的 MAE，再將有效股票等權平均。"),
+          h4("三種方法的整體誤差摘要"),
+          div(class = "v22-table-scroll", tableOutput("v22_all_summary_table")),
+          p(class = "v23-howto", tags$strong("這張表怎麼看？ "),
+            "MAE 是平均絕對誤差；RMSE 對較大的誤差更敏感，兩者單位都是日報酬的百分點。",
+            "QLIKE 是波動預測的另一種誤差衡量，可能為負值，不能當作百分比。",
+            "三項皆越低越好；平均數均以相同一批有效股票等權計算。"),
+          uiOutput("v22_all_conclusion"),
+          tags$details(class = "v15-detail",
+            tags$summary(
+              span(class = "v15-detail-icon", "附表"),
+              span(class = "v15-detail-copy",
+                   tags$strong("逐檔預測誤差與領先方法"),
+                   tags$small("各股 QLIKE、有效測試天數及狀態；下載 CSV 可查看逐檔 MAE、RMSE")),
+              span(class = "v15-detail-action", "展開詳細資料")),
+            div(class = "v15-detail-body",
+              div(class = "v22-table-scroll", tableOutput("v22_all_stock_table")),
+              downloadButton("v22_all_download", "下載全體比較 CSV"))
+          ),
+          p(class = "v15-footnote",
+            "使用各檔股票自己的前 80% 歷史資料估計、後 20% 樣本外測試；資料不足、估計未收斂或指標無效者不納入平均。此結果不等於未來 63 日預測的事後驗證，也不代表已證實統計顯著。")
         ),
-        
-        
-        h3("資料狀態"),
-        
-        div(
-          class = "data-status",
-          
-          p(
-            strong("目前最新日期："),
-            textOutput(
-              "global_latest_date",
-              inline = TRUE
+
+        div(class = "v22-block",
+          h3(class = "v22-title", "02｜單檔模型比較"),
+          p(class = "v22-desc", "想知道為何某檔股票的表現不同？選擇股票後，查看三種方法的完整誤差與波動曲線。"),
+          div(class = "v15-selector",
+            fluidRow(
+              column(7, selectInput("v5_g_stock", "選擇要驗證的股票：",
+                                    choices = stats::setNames(stock_info$symbol,
+                                      paste0(stock_info$name, " (", stock_info$symbol, ")")),
+                                    selected = "2330")),
+              column(5, div(class = "v15-window-note",
+                            strong("測試方式"),
+                            span("前 80% 估計；後 20% 比較預測")))
             )
           ),
-          
-          p(
-            strong("最早日期："),
-            textOutput(
-              "global_earliest_date",
-              inline = TRUE
-            )
+          div(class = "v15-overview",
+            div(class = "v15-result-card v15-result-primary",
+                div(class = "v15-result-kicker", "樣本外預測比較"),
+                uiOutput("v15_forecast_summary")),
+            div(class = "v15-result-card v15-result-secondary",
+                div(class = "v15-result-kicker", "GARCH 殘差診斷"),
+                uiOutput("v15_diag_summary"))
           ),
-          
-          p(
-            strong("股票數量："),
-            textOutput(
-              "global_stock_count",
-              inline = TRUE
-            )
-          ),
-          
-          p(
-            strong("資料筆數："),
-            textOutput(
-              "global_observation_count",
-              inline = TRUE
-            )
-          ),
-          
-          p(
-            strong("檔案更新時間："),
-            textOutput(
-              "global_file_modified",
-              inline = TRUE
-            )
-          )
-        ),
-        
-        h3("市場觀察日期"),
-        
-        dateInput(
-          "market_observation_date",
-          "請選擇日期：",
-          value = data_max_date,
-          min = data_min_date,
-          max = data_max_date,
-          format = "yyyy-mm-dd",
-          language = "zh-TW",
-          weekstart = 1
-        ),
-        
-        h3("0050 與市場概況"),
-        
-        fluidRow(
-          
-          column(
-            3,
-            div(
-              class = "info-card",
-              div(
-                class = "info-card-title",
-                "0050 調整後價格"
-              ),
-              h3(
-                class = "info-card-value",
-                textOutput(
-                  "market_0050_price",
-                  inline = TRUE
-                )
-              )
-            )
-          ),
-          
-          column(
-            3,
-            div(
-              class = "info-card",
-              div(
-                class = "info-card-title",
-                "最近一日日對數報酬率"
-              ),
-              h3(
-                class = "info-card-value",
-                textOutput(
-                  "market_0050_daily_return",
-                  inline = TRUE
-                )
-              )
-            )
-          ),
-          
-          column(
-            3,
-            div(
-              class = "info-card",
-              div(
-                class = "info-card-title",
-                "年初至今報酬"
-              ),
-              h3(
-                class = "info-card-value",
-                textOutput(
-                  "market_ytd_return",
-                  inline = TRUE
-                )
-              )
-            )
-          ),
-          
-          column(
-            3,
-            div(
-              class = "info-card",
-              div(
-                class = "info-card-title",
-                "50 檔漲跌家數"
-              ),
-              h3(
-                class = "info-card-value",
-                textOutput(
-                  "market_breadth",
-                  inline = TRUE
-                )
-              )
-            )
-          )
-        ),
-        
-        h3("0050 統計研究摘要"),
-        
-        fluidRow(
-          column(
-            3,
-            div(
-              class = "info-card accent-blue",
-              div(class = "info-card-title", "0050 成長分數（Growth Score）"),
-              h3(class = "info-card-value", textOutput("market_0050_growth_score", inline = TRUE))
-            )
-          ),
-          column(
-            3,
-            div(
-              class = "info-card accent-amber",
-              div(class = "info-card-title", "0050 風險控制分數（Risk Score）"),
-              h3(class = "info-card-value", textOutput("market_0050_risk_score", inline = TRUE))
-            )
-          ),
-          column(
-            3,
-            div(
-              class = "info-card accent-purple",
-              div(class = "info-card-title", "0050 穩定性分數（Stability Score）"),
-              h3(class = "info-card-value", textOutput("market_0050_stability_score", inline = TRUE))
-            )
-          ),
-          column(
-            3,
-            div(
-              class = "info-card accent-red",
-              div(class = "info-card-title", "0050 最大回撤（Maximum Drawdown）"),
-              h3(class = "info-card-value", textOutput("market_0050_max_drawdown", inline = TRUE))
-            )
-          )
-        ),
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "成長分數用來比較相對強弱；風險控制與穩定性用來描述防守特徵。分數用途不同，不要把『比較穩』直接解讀成『未來一定漲更多』。"
-        ),
-        
-        h3("0050 近期市場狀態"),
-        
-        fluidRow(
-          column(4, div(class = "info-card accent-blue", div(class = "info-card-title", "均線趨勢"), h3(class = "info-card-value", textOutput("market_0050_trend", inline = TRUE)))),
-          column(4, div(class = "info-card accent-purple", div(class = "info-card-title", "14 日相對強弱指標（RSI）"), h3(class = "info-card-value", textOutput("market_0050_rsi", inline = TRUE)))),
-          column(4, div(class = "info-card accent-amber", div(class = "info-card-title", "近期波動狀態"), h3(class = "info-card-value", textOutput("market_0050_vol_state", inline = TRUE))))
-        ),
-        
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "技術狀態只用來描述近期趨勢與動能，不產生買進或賣出建議。排名與統計分析仍以日對數報酬、風險與穩定性為主。"
-        ),
-        
-        hr(),
-        
-        h3("0050 調整後收盤價"),
-        
-        checkboxInput(
-          "market_price_color_by_change",
-          "啟用漲跌著色",
-          value = FALSE
-        ),
-        
-        dateRangeInput(
-          "market_chart_date_range",
-          "圖表時間範圍：",
-          start = data_min_date,
-          end = data_max_date,
-          min = data_min_date,
-          max = data_max_date,
-          format = "yyyy-mm-dd",
-          separator = " 至 "
-        ),
-        
-        plotOutput(
-          "market_0050_price_chart",
-          height = "550px"
-        ),
-        
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "主要觀察 0050 長期價格趨勢。曲線上升代表調整後價格增加，短期斜率越大代表該段價格變動越明顯。"
-        ),
-        
-        hr(),
-        
-        h3("0050 近一年日對數報酬率"),
-        
-        checkboxInput(
-          "market_return_color_by_change",
-          "啟用漲跌幅著色",
-          value = FALSE
-        ),
-        
-        plotOutput(
-          "market_0050_daily_return_timeseries",
-          height = "500px"
-        ),
-        
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "高於 0% 代表上漲，低於 0% 代表下跌；離 0% 越遠代表當日價格變動幅度越大。"
-        ),
-        
-        hr(),
-        
-        h3("近 30 個交易日成分股漲跌幅"),
-        
-        plotOutput(
-          "market_30d_return_ranking",
-          height = "700px"
-        ),
-        
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "往右代表近 30 個交易日累積對數報酬較高，往左代表較低。此圖描述過去期間，不代表未來表現。"
-        ),
-        
-        hr(),
-        
-        h3("最新行情"),
-        
-        tableOutput(
-          "realtime_monitor_table"
+          h4("單檔誤差比較"),
+          tableOutput("v5_goos_tab"),
+          p(class = "v23-howto", tags$strong("先看表格： "),
+            "RMSE、MAE、QLIKE 都是誤差指標，數值越低越好。先用 QLIKE 看三種方法的排名，再看另外兩項是否支持相同結論。"),
+          h4("單檔逐日波動：實際幅度與模型預測"),
+          plotOutput("v22_single_all_plot", height = "320px"),
+          p(class = "v23-howto", tags$strong("這張折線圖怎麼看？ "),
+            "橫軸是測試期間第幾個交易日，縱軸是百分比。『實際 |日報酬|』是當天漲跌幅的絕對值，用作波動的觀察代理；",
+            "另外三條是各方法預測的每日波動幅度。波動預測不必逐日貼合尖峰；整體準確度仍應看上方誤差表。"),
+          p(class = "v15-footnote",
+            "此處比較的是樣本外每日波動預測，不是股價漲跌方向，也不是未來 63 日預測的直接驗證。誤差較小不代表差異達統計顯著，更不代表投資報酬較高。")
         )
       )
+    ))
     ),
-    
-    
-    # ========================================================
-    # 3. 成長／動能排名
-    # ========================================================
-    
-    tabPanel(
-      "排名與分數",
-      tabsetPanel(
-        id = "rank_subtabs",
-        type = "pills",
-        tabPanel(
-          "成長／動能排名",
+
+tabPanel("市場分析",
+      div(class="section-box v25-main-lead",
+        h2("市場分析與股票資訊"),
+        p("查看股票價格、報酬、風險與產業比較；GARCH 波動預測及樣本外驗證統一放在「模型驗證」。")),
+      tabsetPanel(id="v25_market_tabs",type="pills",
+tabPanel(
+      
+      "股票資訊",
       
       div(
         class = "section-box",
         
-        h2("成分股成長／動能排名"),
-        
-        p(
-          class = "page-description",
-          "主排名現在專注回答一件事：哪些成分股的歷史報酬強弱與風險調整後效率相對較好？風險控制與穩定性仍會顯示，但改成輔助判讀，不再直接壓低或拉高主排名。0050 只當比較基準，不參與成分股名次。"
-        ),
-        
-        div(
-          class = "reading-guide",
-          strong("為什麼要拆開？ "),
-          "歷史診斷發現，報酬與動能比較適合拿來區分未來強弱；風險控制與穩定性比較像『防守特徵』。因此新版把『找相對強勢』和『看風險／穩定』分開，避免一個總分把不同目的混在一起。"
-        ),
-        fluidRow(
-          column(3, div(class="info-card accent-green", div(class="info-card-title", "報酬分數（Return Score）｜70%"), div("主訊號。比較多個期間的相對報酬，再加上近 1 年年化報酬。"))),
-          column(3, div(class="info-card accent-purple", div(class="info-card-title", "夏普分數（Sharpe Score）｜30%"), div("輔助訊號。看承擔風險後，換到的報酬效率是否較好。"))),
-          column(3, div(class="info-card accent-amber", div(class="info-card-title", "風險控制（Risk Score）｜輔助"), div("看波動、最大回撤與條件風險值（CVaR）。分數高代表歷史風險較可控，不代表未來報酬一定較高。"))),
-          column(3, div(class="info-card accent-blue", div(class="info-card-title", "穩定性（Stability Score）｜輔助"), div("看不同期間的報酬、排名與風險是否一致。穩定代表一致，不等於高報酬。")))
-        ),
-        
-        div(
-          class = "time-info",
-          strong("目前統一時間規則： "),
-          textOutput("ranking_period_info", inline = TRUE)
-        ),
-        
-        tags$details(
-          class = "method-details",
-          tags$summary("查看成長分數怎麼算，以及比例是做什麼用的"),
-          p("第一步：因為報酬率、波動度、夏普比率的單位不同，我們先把同一日期的成分股轉成 0–100 分。這叫橫斷面排名（Cross-sectional Ranking），意思是比較『同一時間誰相對較高』。"),
-          p("報酬分數（Return Score）先整合多期間報酬，再加入近 1 年年化報酬；它主要描述股票目前相對強弱。"),
-          p("夏普分數（Sharpe Score）來自夏普比率（Sharpe Ratio），用來補充『承擔這些波動後，得到的報酬是否划算』。"),
-          p("成長分數（Growth Score）目前採研究候選設定：70% 報酬分數 + 30% 夏普分數。70% 代表我們把報酬／動能當主要訊號；30% 則避免只追逐報酬而完全忽略風險效率。這不是宣稱唯一最佳比例，模型驗證頁會繼續比較。"),
-          p("風險控制分數（Risk Score）= 35% 波動控制 + 35% 最大回撤控制 + 30% 條件風險值（CVaR）控制。它用來看防守能力，不直接參與新版主排名。"),
-          p("穩定性分數（Stability Score）= 30% 排名穩定 + 40% 報酬穩定 + 30% 風險穩定。它表示跨期間的一致程度，不直接代表未來報酬。"),
-          p("多期間報酬目前使用：1週 5%、1月 10%、3月 15%、6月 20%、1年 25%、3年 25%。比例越高，代表該時間尺度對報酬分數影響越大；短期保留訊號，但不讓單一一週行情主導整體結果。")
-        ),
-        
-        h3("各時間尺度實際資料範圍"),
-        tableOutput("ranking_period_table"),
-        
-        h3("成長分數前 10 名"),
-        plotOutput("composite_ranking_chart", height = "520px"),
-        
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "分數越高，代表歷史報酬強弱與風險調整後效率相對較高。這是研究用的相對排名，不代表未來一定上漲，也不是買進建議。風險與穩定性請搭配右側欄位一起看。"
-        ),
-        
-        h3("完整成分股排名"),
-        tableOutput("composite_ranking_table")
-      )
-    ),
-    
-    
-    # ========================================================
-    # 4. 風險與穩定性
-    # ========================================================
-    
-    tabPanel(
-      
-      "風險與穩定性",
-      
-      div(
-        class = "section-box",
-        
-        h2("風險與穩定性分析"),
-        
-        p(
-          class = "page-description",
-          "這一頁想回答兩件事：過去承受的風險有多大？表現是不是只好在某一段時間，還是不同期間都相對一致？"
-        ),
-        
-        div(
-          class = "reading-guide",
-          strong("穩定性是什麼？ "),
-          "穩定性分數（Stability Score）看的是『不同期間是否表現一致』。例如 1 個月、3 個月、6 個月到 3 年的報酬、相對排名與風險差異都不大，分數會比較高。請注意：穩定只代表一致，不等於未來報酬較高；一檔股票也可能『穩定地普通』。"
-        ),
-        
-        div(
-          class = "time-info",
-          strong("這頁的時間： "),
-          textOutput("risk_period_info", inline = TRUE)
-        ),
-        
-        h3("穩定性分數前 10 名"),
-        plotOutput("stability_ranking_chart", height = "520px"),
-        
-        h3("風險與穩定性摘要"),
-        tableOutput("risk_stability_table"),
-        h3("風險穩定分拆解"),
-        p(class = "page-description",
-          "風險穩定分由五個指標加權而成，其中 GARCH 佔 10%。下表顯示每檔的拆解，可看出分數是被哪一項拉高或壓低。"),
-        tableOutput("v4_risk_decomp"),
-        
-      )
-    ))),
-    
-    
-    # ========================================================
-    # 5. 主成分與分群
-    # ========================================================
-    
-    tabPanel(
-      "附錄",
-      tabsetPanel(
-        id = "appendix_tabs",
-        type = "pills",
-        tabPanel(
-          "主成分與分群",
-      
-      div(
-        class = "section-box",
-        
-        h2("主成分分析與分群"),
-        
-        p(
-          class = "page-description",
-          "主成分分析用來檢查多個投資指標是否包含重複資訊，再以主成分進行資料驅動的股票分群。這一頁的所有統計特徵都會使用同一個選定期間。"
-        ),
-        
-        fluidRow(
-          column(
-            4,
-            selectInput(
-              "pca_window",
-              "PCA／分群分析期間：",
-              choices = c(
-                "近 3 個月" = 63,
-                "近 6 個月" = 126,
-                "近 1 年" = 252,
-                "近 3 年" = 756
-              ),
-              selected = 252
-            )
-          ),
-          column(
-            8,
-            div(
-              class = "time-info",
-              strong("目前使用資料： "),
-              textOutput("pca_period_info", inline = TRUE)
-            )
-          )
-        ),
-        
-        div(
-          class = "reading-guide",
-          strong("方法說明："),
-          "一檔股票就是一筆資料。先用同一期間計算年化報酬、年化波動、最大回撤、CVaR、夏普，以及報酬／排名／風險三種穩定性，再把 8 個指標標準化後做 PCA；最後使用主成分進行 K-means 分群。"
-        ),
-        
-        tags$details(
-          class = "method-details",
-          tags$summary("PCA／分群到底用了哪些資料？"),
-          p("每檔股票使用 8 個核心特徵：年化報酬率、年化波動度、最大回撤、95% 條件風險值（CVaR）、夏普比率、報酬穩定性、排名穩定性、風險穩定性。"),
-          p("選近 3 個月時，這 8 個特徵都只使用最近約 63 個交易日；選近 1 年時，就全部只使用最近約 252 個交易日，不會偷偷混入更久以前的資料。"),
-          p("至少要有選定期間約 80% 的有效觀測，才會納入本次 PCA／分群。"),
-          p("分群只用來描述股票的統計型態，不直接決定成長／動能排名。")
-        ),
-        
-        h3("主成分解釋變異"),
-        tableOutput("pca_variance_table"),
-        
-        h3("主成分負荷量"),
-        tableOutput("pca_loading_table"),
-        
-        div(
-          class = "plot-explanation",
-          textOutput("pca_plain_explanation")
-        ),
-        
-        h3("分群數比較"),
-        tableOutput("cluster_quality_table"),
-        
-        h3("主成分分群圖"),
-        plotOutput("pca_cluster_chart", height = "600px"),
-        
-        h3("各群平均特徵"),
-        tableOutput("cluster_summary_table"),
-        
-        h3("每一檔股票屬於哪一群？"),
-        selectInput(
-          "cluster_filter",
-          "篩選群組：",
-          choices = c("全部" = "ALL"),
-          selected = "ALL"
-        ),
-        tableOutput("cluster_membership_table")
-      )
-    ),
-    
-    
-    # ========================================================
-    # 6. 個股分析
-    # ========================================================
-    
-    tabPanel(
-      
-      "個股分析",
-      
-      div(
-        class = "section-box",
-        
-        h2("個股分析"),
+        h2("股票資訊"),
         
         p(
           class = "page-description",
@@ -2362,7 +3586,7 @@ ui <- fluidPage(
         dateRangeInput(
           "date_range",
           "分析期間：",
-          start = RESEARCH_START_DATE,
+          start = data_max_date - 365,
           end = min(
             RESEARCH_END_DATE,
             data_max_date
@@ -2398,11 +3622,6 @@ ui <- fluidPage(
           height = "500px"
         ),
         
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "價格圖主要看趨勢。不同股票價格尺度不同，因此比較績效時應搭配累積報酬率。"
-        ),
         
         uiOutput(
           "cumulative_return_display"
@@ -2420,17 +3639,13 @@ ui <- fluidPage(
         
         hr(),
         
-        h3("日對數報酬分布"),
+        tags$details(class = "method-details", tags$summary("展開日報酬分布、箱型圖與逐日序列"),
+h3("日對數報酬分布"),
         
         uiOutput(
           "return_distribution_ui"
         ),
         
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "直方圖呈現實際日對數報酬；深色曲線為依該股票樣本平均數與標準差估計的常態機率密度函數。若實際分布與曲線差異較大，表示資料未必符合常態分布。"
-        ),
         
         
         hr(),
@@ -2441,11 +3656,6 @@ ui <- fluidPage(
           "return_boxplot_ui"
         ),
         
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "箱體代表中間 50% 的報酬分布。箱體越高通常表示報酬波動範圍越大。"
-        ),
         
         hr(),
         
@@ -2455,14 +3665,10 @@ ui <- fluidPage(
           "log_return_series_ui"
         ),
         
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "每檔股票各自一張圖，可以直接觀察高波動與極端報酬發生在哪些日期。"
+        
+        hr()
         ),
-        
         hr(),
-        
         h3("期間績效"),
         
         tableOutput(
@@ -2493,11 +3699,6 @@ ui <- fluidPage(
           "drawdown_charts_ui"
         ),
         
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "回撤表示價格從之前高點下跌多少。越接近 0% 表示越接近高點，負值越深表示回落幅度越大。"
-        ),
         
         hr(),
         
@@ -2506,11 +3707,6 @@ ui <- fluidPage(
         plotOutput(
           "return_risk_chart",
           height = "550px"
-        ),
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "越往右代表年化波動度越高；越往上代表年化報酬率越高。右上方代表報酬與波動都較高，左下方則代表報酬與波動都較低。這張圖主要用來觀察報酬與風險的分布關係。"
         ),
         
         hr(),
@@ -2523,20 +3719,10 @@ ui <- fluidPage(
         tableOutput("individual_correlation_table"),
         h4("60 日滾動相關性"),
         plotOutput("individual_rolling_correlation_chart", height = "420px"),
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "越接近 1，代表最近約 60 個交易日和 0050 的漲跌較同步；接近 0 表示同步程度較弱。這個數值會隨市場狀況改變，所以比只看一個長期相關係數更能看出關係是否穩定。"
-        )
       )
     ),
-    
-    
-    # ========================================================
-    # 7. 產業比較
-    # ========================================================
-    
-    tabPanel(
+
+tabPanel(
       
       "產業比較",
       
@@ -2550,11 +3736,6 @@ ui <- fluidPage(
           "產業比較中，原始產業分類若少於 4 檔成分股，統一合併為「其他」。"
         ),
         
-        div(
-          class = "reading-guide",
-          strong("怎麼看？ "),
-          "先在上方選擇一個產業查看其個別結果，再往下觀察所有產業的綜合比較。每個產業都有固定代表色。"
-        ),
         
         # ========================================================
         # 單一產業
@@ -2601,11 +3782,6 @@ ui <- fluidPage(
           height = "500px"
         ),
         
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "越往右代表波動度越高；越往上代表年化報酬率越高。可用來觀察該產業內各成分股的報酬與風險分布。"
-        ),
         
         hr(),
         
@@ -2635,352 +3811,48 @@ ui <- fluidPage(
           height = "550px"
         ),
         
-        div(
-          class = "plot-explanation",
-          strong("怎麼看？ "),
-          "所有產業圖形使用各自代表色。累積報酬圖比較不同產業期間變化，分布圖比較日報酬型態，風險報酬圖則比較產業的年化報酬率與年化波動度。"
-        )
         
       )
       
-    ))),
-    
-    
-    # ========================================================
-    # 8. 模型驗證：區塊拔靴法＋歷史回測
-    # ========================================================
-    
-    tabPanel(
-      "模型驗證",
-      div(
-        class = "section-box",
-        h2("模型驗證｜結果穩不穩？過去有沒有用？"),
-        p(
-          class = "page-description",
-          "主排名先告訴我們誰的成長分數較高；模型驗證再從兩個方向檢查：這個差異會不會只是剛好，以及過去真的使用這套排名時，下一期是否有區辨能力。"
-        ),
-        h3("時間序列檢定"),
-        p(class = "page-description",
-          "所選股票近 5 年日對數報酬的定態性、模型選擇與殘差診斷，以及全體成分股的動能持續性檢定。"),
-        fluidRow(
-          column(4, selectInput("v4ts_stock", "檢定標的：",
-                                choices = stats::setNames(stock_info$symbol,
-                                  paste0(stock_info$name, " (", stock_info$symbol, ")")),
-                                selected = "2330")),
-          column(4, div(class = "time-info", strong("樣本："), textOutput("v4ts_n", inline = TRUE))),
-          column(4, actionButton("v4ts_run_persist", "計算動能持續性（約 3 秒）", class = "btn-primary"))
-        ),
-        h4("定態性與殘差診斷"),
-        tableOutput("v4ts_diag"),
-        h4("ARIMA 模型選擇（依 AIC 排序）"),
-        tableOutput("v4ts_grid"),
-        h4("動能持續性（panel AR(1)）"),
-        tableOutput("v4ts_persist"),
-        hr(),
+    )
 
-        tabsetPanel(
-          id = "validation_tabs",
-          type = "pills",
-          tabPanel(
-            "結果穩不穩｜區塊拔靴法",
-            br(),
-            fluidRow(
-              column(3, selectInput("bootstrap_stock", "比較成分股：", choices = setNames(stock_info$symbol, paste0(stock_info$name, " (", stock_info$symbol, ")")), selected = "2330")),
-              column(3, selectInput("bootstrap_window", "抽樣歷史期間：", choices = c("近 6 個月" = 126, "近 1 年" = 252, "近 3 年" = 756), selected = 252)),
-              column(3, selectInput("bootstrap_block", "每個區塊多長：", choices = c("5 個交易日" = 5, "10 個交易日" = 10, "20 個交易日" = 20), selected = 10)),
-              column(3, selectInput("bootstrap_reps", "重新抽幾次：", choices = c("50 次｜最快" = 50, "100 次｜建議" = 100, "200 次｜較完整" = 200), selected = 100))
-            ),
-            div(
-              class = "time-info",
-              strong("實際抽樣資料： "),
-              textOutput("bootstrap_period_info", inline = TRUE)
-            ),
-            actionButton("run_bootstrap", "開始快速檢查", class = "btn-primary"),
-            div(class = "method-note", "網站版以速度為優先，建議先用 100 次。正式報告若需要更穩定的區間，可在離線或每日更新流程中使用 1000 次以上，不需要讓每位使用者現場等待。"),
-            h3("結果摘要"),
-            tableOutput("bootstrap_summary_table"),
-            h3("相對 0050 的成長分數差異分布"),
-            plotOutput("bootstrap_diff_chart", height = "500px"),
-            div(class = "plot-explanation", strong("怎麼看？ "), "0 代表和 0050 差不多。大部分結果都在 0 的右邊，代表這檔股票在重新抽樣後，成長分數通常仍高於 0050；如果分布橫跨 0，代表目前看到的優勢還不夠穩。")
-          ),
-          tabPanel(
-            "過去有沒有用｜歷史回測",
-            br(),
-            div(
-              class = "reading-guide",
-              strong("白話版： "),
-              "假裝回到過去，在每個評分日期只使用當時已經知道的資料算分數，再看未來 1週、1月、1季、半年、1年到多年後，高分組是否真的比低分組更好。重點是驗證評分方法，不是找漂亮的買賣點。"
-            ),
-            fluidRow(
-              column(
-                3,
-                selectInput(
-                  "backtest_lookback_days",
-                  "每次評分往回看多久：",
-                  choices = c(
-                    "近 6 個月" = 126,
-                    "近 1 年" = 252,
-                    "近 2 年" = 504,
-                    "近 3 年｜完整主模型" = 756
-                  ),
-                  selected = 756
-                )
-              ),
-              column(
-                3,
-                selectInput(
-                  "backtest_forward_days",
-                  "評分後觀察多久：",
-                  choices = VALIDATION_FORWARD_WINDOWS,
-                  selected = 126
-                )
-              ),
-              column(
-                3,
-                selectInput(
-                  "backtest_frequency",
-                  "多久重新評分一次：",
-                  choices = c("每月" = 21, "每季" = 63, "每年" = 252),
-                  selected = 21
-                )
-              ),
-              column(
-                3,
-                selectInput(
-                  "backtest_model",
-                  "要驗證哪個排名模型：",
-                  choices = c(
-                    "新版成長分數｜70% 報酬 + 30% 夏普" = "growth",
-                    "報酬分數（Return Score）" = "return",
-                    "6 個月動能（Momentum）" = "momentum_6m",
-                    "舊綜合分數｜40/25/20/15（比較用）" = "legacy_composite"
-                  ),
-                  selected = "growth"
-                )
-              )
-            ),
-            fluidRow(
-              column(
-                4,
-                numericInput(
-                  "backtest_start_year",
-                  "從哪一年開始驗證：",
-                  value = 2019,
-                  min = 2017,
-                  max = max(2019, as.integer(format(data_max_date, "%Y"))),
-                  step = 1
-                )
-              ),
-              column(
-                4,
-                br(),
-                actionButton("run_backtest", "執行評分模型驗證", class="btn-primary")
-              )
-            ),
-            div(
-              class = "time-info",
-              strong("時間定義： "),
-              "『往回看多久』是算分數時可用的歷史資料；『評分後觀察多久』是完全不參與評分的未來資料。兩者會分開顯示，避免把未來資料混進當時的評分。"
-            ),
-            div(class = "method-note", strong("模型選擇是做什麼？ "), "這裡不是讓使用者一直調到歷史績效最好，而是拿不同排名方法做公平比較。新版成長分數、單獨報酬分數、6 個月動能，以及舊綜合分數，都會使用相同的評分日期與未來觀察期間。預設採『每月重新評分、往後看 6 個月』，對應目前研究診斷的主要比較方式。"),
-            div(class = "warning-note", strong("研究限制： "), "目前回測仍以現有成分股名單往回分析，因此較早年份可能有存活者偏誤（Survivorship Bias）。白話說，就是今天仍在 0050 裡的公司，本來就可能是過去表現相對好的公司；正式結論必須保留這項限制。"),
-            uiOutput("backtest_status"),
-            h3("各次評分後的實際表現"),
-            plotOutput("backtest_cumulative_chart", height="520px"),
-            h3("模型驗證摘要"),
-            tableOutput("backtest_summary_table"),
-            h3("高分組和低分組真的有拉開嗎？"),
-            tableOutput("backtest_separation_table"),
-            div(class="plot-explanation", strong("怎麼看？ "), "報酬差距（Spread）= Top5 未來平均報酬 − Bottom5 未來平均報酬；Top5 勝率則是所有評分日期中，Top5 後來真的贏過 Bottom5 的比例。兩者一起看，比只挑一段漂亮績效更有意義。"),
-            h3("分數和未來排名是否一致？"),
-            tableOutput("backtest_spearman_table"),
-            h3("各次驗證結果"),
-            tableOutput("backtest_yearly_table"),
-            div(class="plot-explanation", strong("怎麼看？ "), "先看 Top5 是否經常優於 Bottom5，再看風險、最大回撤與夏普是否也比較合理。若高分組只是在某些期間報酬較高、但風險更差，就不能只用報酬判定模型有效。")
-          )
-        )
-      )
-    ),
-    
-    
-    # ========================================================
-    # 11. 研究方法與資料說明
-    # ========================================================
-    # ========================================================
-    # 9. GARCH 預測與 0010 組合（新增頁籤）
-    #    插入位置：放在「研究方法與說明」tabPanel 之前
-    # ========================================================
-    
-    tabPanel(
-      "0010組合",
-      
-      div(
-        class = "section-box",
-        h2("0010 組合"),
-        p(class = "page-description",
-          "0010 由兩個分數組成：動能分 70% ＋ 風險穩定分 30%。GARCH 只作為風險穩定分其中的一項輸入（10%），本頁的 GARCH 區塊是它的計算來源與模型診斷，不是獨立的選股因子。"),
-        
-        tabsetPanel(
-          id = "g10_tabs",
-          type = "pills",
-          
-          # --------------------------------------------------
-          # 1. 單檔 GARCH 模型
-          # --------------------------------------------------
-          tabPanel(
-            "GARCH 診斷：單檔",
-            br(),
-            fluidRow(
-              column(4, selectInput("g10_stock", "選擇股票：",
-                                    choices = setNames(stock_info$symbol,
-                                                       paste0(stock_info$name, " (", stock_info$symbol, ")")),
-                                    selected = "2330")),
-              column(4, selectInput("g10_window", "估計樣本（交易日）：",
-                                    choices = c("近 2 年" = 500, "近 4 年" = 1000, "近 6 年" = 1500),
-                                    selected = 1000)),
-              column(4, div(class = "time-info",
-                            strong("預測期："), "未來 63 個交易日（約一季）"))
-            ),
-            
-            h3("預測結果"),
-            fluidRow(
-              column(3, div(class = "info-card",
-                            div(class = "info-card-title", "預測年化波動（下一季）"),
-                            h3(class = "info-card-value", textOutput("g10_kpi_fvol", inline = TRUE)))),
-              column(3, div(class = "info-card",
-                            div(class = "info-card-title", "近一年實現波動"),
-                            h3(class = "info-card-value", textOutput("g10_kpi_rvol", inline = TRUE)))),
-              column(3, div(class = "info-card",
-                            div(class = "info-card-title", "預測／實現"),
-                            h3(class = "info-card-value", textOutput("g10_kpi_ratio", inline = TRUE)))),
-              column(3, div(class = "info-card",
-                            div(class = "info-card-title", "波動狀態"),
-                            h3(class = "info-card-value", textOutput("g10_kpi_regime", inline = TRUE))))
-            ),
-            
-            h3("參數估計（最大概似法）"),
-            tableOutput("g10_param_table"),
-            div(class = "plot-explanation", strong("怎麼看？"),
-                "α 是「今天的 shock 對明天波動的影響」，β 是「波動本身的記憶」。α+β 越接近 1，代表波動一旦被拉高就越難退回去；半衰期就是把衝擊消掉一半所需的天數。"),
-            
-            h3("條件波動（模型配適）"),
-            plotOutput("g10_vol_path", height = "380px"),
-            
-            h3("未來 63 日波動預測"),
-            plotOutput("g10_fan", height = "340px"),
-            
-            h3("模型診斷"),
-            tableOutput("g10_diag"),
-            div(class = "plot-explanation", strong("怎麼看？"),
-                "Ljung-Box 的 p 值大於 0.05，代表標準化殘差已經沒有明顯的自我相關，模型大致夠用；若 p 值很小，代表還有結構沒抓到，該檔的預測請保守看待。")
-          ),
-          
-          # --------------------------------------------------
-          # 2. 波動預測總表
-          # --------------------------------------------------
-          tabPanel(
-            "GARCH 診斷：全體",
-            br(),
-            actionButton("g10_run_all", "估計全部成分股 GARCH（約 5–15 秒）", class = "btn-primary"),
-            div(class = "method-note",
-                "第一次使用請先按這個按鈕。結果會快取，切換頁籤不會重算。"),
-            h3("50 檔成分股波動預測"),
-            tableOutput("g10_all_table"),
-            h3("預測／實現波動比"),
-            plotOutput("g10_ratio_bar", height = "700px"),
-            div(class = "plot-explanation", strong("怎麼看？"),
-                "比值 < 1 代表模型預期未來波動比過去一年平緩；> 1 代表預期波動升溫。這是一個「方向」訊號，不是「幅度」預測。")
-          ),
-          
-          # --------------------------------------------------
-          # 3. 0010 組合（本期）
-          # --------------------------------------------------
-          tabPanel(
-            "0010 組合",
-            br(),
-            div(class = "reading-guide", strong("0010 是什麼？"),
-                "從 50 檔成分股中，以動能分 70% ＋ 風險穩定分 30% 選出前 10 檔，預設依波動度反比給權重（單檔上限 20%）。每季重新評分一次。"),
-            
-            fluidRow(
-              column(4, selectInput("g10_scheme", "持股權重方式：",
-                                    choices = c("波動度反比" = "inv_vol",
-                                                "等權重" = "equal",
-                                                "分數加權" = "score"),
-                                    selected = "inv_vol")),
-              column(4, sliderInput("g10_cap", "單檔權重上限：", min = 0.10, max = 0.30, value = 0.20, step = 0.01)),
-              column(4, numericInput("g10_capital", "模擬投入金額（元）：", value = 1000000, min = 100000, step = 100000))
-            ),
-            
-            
-            h3("本期執行摘要"),
-            fluidRow(
-              column(3, div(class = "info-card",
-                            div(class = "info-card-title", "本季新買"),
-                            h3(class = "info-card-value", textOutput("g10_n_new", inline = TRUE)))),
-              column(3, div(class = "info-card",
-                            div(class = "info-card-title", "續抱"),
-                            h3(class = "info-card-value", textOutput("g10_n_hold", inline = TRUE)))),
-              column(3, div(class = "info-card",
-                            div(class = "info-card-title", "下季剔除"),
-                            h3(class = "info-card-value", textOutput("g10_n_drop", inline = TRUE)))),
-              column(3, div(class = "info-card",
-                            div(class = "info-card-title", "預估換手率"),
-                            h3(class = "info-card-value", textOutput("g10_turnover_est", inline = TRUE))))
-            ),
-            div(class = "plot-explanation", strong("怎麼看？"),
-                "「新買」是本季名單新出現的股票；「續抱」是上季已在名單內；「剔除」是上季持有但本季不再入選，下次再平衡時賣出。預估換手率已考慮持股自然漂移。"),
-            
-            h3("本期 0010 名單與權重"),
-            tableOutput("g10_weights"),
-            
-            h3("交易成本試算"),
-            tableOutput("g10_cost"),
-            div(class = "plot-explanation", strong("怎麼算？"),
-                "手續費 0.1425%（每筆最低 20 元，買賣各收一次）、證交稅 0.3%（僅賣出）、滑價 0.1%（可調）。建倉成本 = 買進手續費 + 滑價；換股成本另計換手率。"),
-            
-            h3("下一次再平衡"),
-            uiOutput("g10_next_date"),
-            
-            h3("持有追蹤與風控（以上一期季末名單為基準）"),
-            p(class = "page-description",
-              "停損與停利距離不是固定的 5%，而是用 GARCH 的預測波動決定：距離 = k × 預測 21 日波動。波動大的股票停損自然拉寬，避免被正常震盪洗出場；波動小的股票停損收緊，資金效率較高。"),
-            fluidRow(
-              column(6, sliderInput("g10_k_stop", "停損倍數 k", min = 1, max = 3, value = 2, step = 0.1)),
-              column(6, sliderInput("g10_k_take", "停利倍數 k", min = 2, max = 5, value = 3, step = 0.1))
-            ),
-            tableOutput("g10_track"),
-            uiOutput("g10_track_note"),
-            div(class = "plot-explanation", strong("怎麼看？"),
-                "停損價與停利價都以「買進價」為基準計算，不隨價格上移（不是移動停損）。狀態顯示是否已觸及。真實交易仍需考慮流動性與跳空，這裡只做統計上的參考距離。")
-          ),
-          
-          # --------------------------------------------------
-          # 4. 季度再平衡回測
-          # --------------------------------------------------
-          tabPanel(
-            "季度再平衡回測",
-            br(),
-            div(class = "reading-guide", strong("這頁在驗證什麼？"),
-                "每一季只用當時已知的資料重新評分、選股、給權重，持有 63 個交易日後再換股，並扣掉手續費、證交稅與滑價。看的是「扣完成本之後還剩多少」。"),
-            actionButton("g10_run_bt", "執行季度回測（約 20–60 秒）", class = "btn-primary"),
-            div(class = "method-note",
-                "歷史回測的波動估計採 EWMA（GARCH 家族的 λ=0.94 特例），因為它不需要每季重新估計參數，也完全不使用未來資料；最新一期的預測才用完整 GARCH(1,1) MLE。"),
-            h3("績效摘要"),
-            tableOutput("g10_bt_stats"),
-            h3("淨值曲線（已扣成本）"),
-            plotOutput("g10_bt_curve", height = "420px"),
-            h3("各季明細"),
-            tableOutput("g10_bt_quarters")
-          )
-        )
       )
     ),
 
-    tabPanel(
-      "研究方法與說明",
+tabPanel("研究方法",
+      div(class="section-box v25-main-lead",
+        h2("研究方法與進階統計資料"),
+        p("公式、樣本設定、模型檢定與研究限制都保留，但不干擾一般使用者。")),
+      tabsetPanel(id="v25_research_tabs",type="pills",
+tabPanel(
+      "公式、資料與限制",
       div(
         class = "section-box",
         h2("研究方法、指標與資料說明"),
+        tags$details(class = "method-details",
+          tags$summary("12. 資料字典與口徑"),
+          p("所有計算共用同一份日資料，欄位與用途如下。"),
+          tags$ul(
+            tags$li("symbol：股票代號（4 碼，0050 為基準）。"),
+            tags$li("date：交易日，以證交所行事曆為準。"),
+            tags$li("adjusted：調整後收盤價，已還原除權息與分割；所有報酬、波動、回撤皆以此計算。"),
+            tags$li("open / high / low / close / volume：原始行情，僅供顯示與核對，不進入統計模型。"),
+            tags$li("log_return：日對數報酬 ln(P_t / P_(t-1))，由 adjusted 計算。"),
+            tags$li("資料期間 2016-01-04 起；每日由 update_data.R 增量更新，只補最近 10 個交易日。"),
+            tags$li("0050 於 2025-06-18 實施 4 比 1 分割，adjusted 序列必須連續，否則會出現假暴跌。")
+          ),
+          p("口徑提醒：0010 與 0050 的報酬都以 adjusted 計算，等於股利自動再投資，不可再把現金股利另外加一次。0050 若模擬買賣，賣出證交稅為 0.1%（ETF），與個股 0.3% 不同。")
+        ),
+
+        tags$details(class = "method-details",
+          tags$summary("13. EWMA 與 GARCH 的差別"),
+          p("EWMA 是 GARCH 家族的特例：ω = 0 且 α + β = 1（IGARCH）。優點是不需估計參數、完全不使用未來資料；缺點是沒有均值回歸。"),
+          p("GARCH(1,1) 允許 α + β < 1，因此預測會隨時間收斂到長期平均波動，適合前瞻預測。"),
+          p("本研究的用法：歷史季度回測採 EWMA（λ = 0.94），因為不需要每季重新估計；當期最新一期採完整 GARCH(1,1) 最大概似估計。"),
+          p("因此報告不可把整段歷史回測稱為「完整 GARCH 回測」。正確寫法：「歷史回測以 EWMA 估計波動；當期預測採 GARCH(1,1)」。")
+        ),
+
+
         p(class="page-description", "如果看到某個名詞不知道在說什麼，可以回到這一頁。每個重要指標都會先用白話說明『它是什麼、怎麼看、要注意什麼』，需要時再看計算方式。"),
         div(class="reading-guide", strong("核心原則： "), "價格用來觀察走勢；日對數報酬率用來進行主要統計分析。網站結果為統計研究與歷史資料分析，不構成投資建議。"),
         # ======================================================
@@ -3112,29 +3984,83 @@ ui <- fluidPage(
                      p("穩定性分數（Stability Score）看不同期間的報酬、排名與波動是否一致。它回答的是『表現是否依賴某一段行情』，也不是未來報酬保證。"),
                      p("因此新版把成長能力和防守資訊分開：主排名用 Growth；Risk 與 Stability 放在旁邊幫助判斷股票是『強勢但波動大』，還是『強勢且相對防守』。")
         ),
-        div(class="method-note",
-            strong("目前模型診斷怎麼做？ "),
-            "我們先在歷史資料的每個評分日期把成分股分成 Top5 與 Bottom5，再看未來 6 個月。主要看兩個數：報酬差距（Spread）與 Top5 勝率。這個流程的目的，是確認一個分數是否真的能把後續表現較強與較弱的股票分開，而不是只看分數本身是否漂亮。"
-        ),
-        tags$details(class="method-details",
-                     tags$summary("區塊拔靴法（Block Bootstrap）：這個優勢會不會只是剛好？"),
-                     p("做法：把歷史日對數報酬一小段一小段重新抽很多次，每次重新計算成分股與 0050 的分數差。"),
-                     p("怎麼看：如果重新抽很多次，大部分結果仍然高於 0050，就表示這個優勢比較不容易因資料稍微改變就消失；如果結果常常跨過 0，就代表還有不小的不確定性。")
-        ),
-        tags$details(class="method-details",
-                     tags$summary("歷史回測：如果以前真的照這個排名看，後來呢？"),
-                     p("做法：假裝回到過去的每一個評分日期，只使用當時已經知道的資料做排名，再依使用者選擇觀察未來 1 週、1 個月、1 季、半年、1 年到多年後的實際表現。"),
-                     p("怎麼看：如果 Top 組合在很多不同年度都比 Bottom 組合好，而且常常能勝過 0050，代表這套排名比較可能真的有區分能力，而不是只對整段歷史資料看起來漂亮。")
-        ),
-        tags$details(class="method-details",
-                     tags$summary("主成分分析（PCA）與 K-means 分群：把複雜指標整理成比較好懂的類型"),
-                     p("主成分分析（PCA, Principal Component Analysis）：使用者可切換近 3 個月、6 個月、1 年或 3 年；同一次分析中的年化報酬、波動、最大回撤、CVaR、夏普與三種穩定性都來自同一期間。若指標之間有重複資訊，主成分分析會把它們整理成幾個主要方向。"),
-                     p("K-means 分群（K-means Clustering）：再把統計特性相近的股票自動分成幾類，例如低波動穩定型或高報酬高風險型。分群是用來解釋股票特色，不直接決定排名。")
-        ),
         h3("目前資料清單與有效期間"),
         tableOutput("stock_table"),
         h3("研究限制"),
         div(class="warning-note", "0050 成分股會隨時間調整；若以目前成分股回溯過去，可能產生存活者偏誤（Survivorship Bias）。此外，所有統計結果都會受到研究期間、資料品質與市場狀態影響。")
+      )
+    ),
+        tabPanel("進階統計診斷",
+          div(class="section-box v15-validation",
+h3(class = "v15-more-title", "完整統計資料"),
+        p(class = "v15-plain-note", "研究細節都保留，需要查看時再展開，不影響上方的快速判讀。"),
+
+        tags$details(class = "v15-detail", 
+          tags$summary(
+            span(class = "v15-detail-icon", "01"),
+            span(class = "v15-detail-copy",
+                 tags$strong("GARCH 殘差診斷與全體收斂"),
+                 tags$small("標準化殘差、平方殘差、ARCH-LM、模型參數與收斂清單")),
+            span(class = "v15-detail-action", "展開詳細資料")),
+          div(class = "v15-detail-body",
+            h4("單檔殘差診斷"),
+            p(class = "v15-plain-note", "以下結果對應上方選擇的股票；p 值大於 0.05 只代表未發現顯著殘留結構，並非保證模型正確。"),
+            tableOutput("v5_gdiag_tab"),
+            p(class = "v23-howto", tags$strong("殘差檢定怎麼看？ "),
+              "Ljung-Box 檢查殘差自相關，ARCH-LM 檢查是否還留有波動叢聚。",
+              "p 值較小（例如不大於 0.05）表示模型可能未充分捕捉資料特徵；p 值較大不能證明模型一定準。"),
+            h4("全部成分股：GARCH 收斂狀況"),
+            p(class = "v15-plain-note", "此項需要手動執行，完成後才顯示全體結果。"),
+            fluidRow(
+              column(6, actionButton("v5_run_gall", "執行全體收斂檢查", class = "btn-primary")),
+              column(6, div(class = "v15-window-note", "估計視窗與「模型驗證 → GARCH 波動預測 → 單檔預測」相同"))
+            ),
+            tableOutput("v5_gall_summary"),
+            div(class = "v15-table-scroll", tableOutput("v5_gall_tab"))
+          )
+        ),
+
+        tags$details(class = "v15-detail", 
+          tags$summary(
+            span(class = "v15-detail-icon", "02"),
+            span(class = "v15-detail-copy",
+                 tags$strong("時間序列檢定與動能持續性"),
+                 tags$small("ADF、ARIMA、Ljung-Box 與全體成分股動能持續性")),
+            span(class = "v15-detail-action", "展開詳細資料")),
+          div(class = "v15-detail-body",
+            fluidRow(
+              column(4, selectInput("v4ts_stock", "時間序列檢定標的：",
+                                    choices = stats::setNames(stock_info$symbol,
+                                      paste0(stock_info$name, " (", stock_info$symbol, ")")),
+                                    selected = "2330")),
+              column(4, div(class = "v15-window-note", strong("樣本："),
+                            textOutput("v4ts_n", inline = TRUE))),
+              column(4, actionButton("v4ts_run_persist", "計算動能持續性", class = "btn-primary"))
+            ),
+            p(class = "v15-plain-note", "時間序列檢定標的可獨立選擇，不會改動上方 GARCH 預測比較的股票。"),
+            p(class = "v23-howto", tags$strong("這裡的樣本 n 是什麼？ "),
+              "上方 n 是該股票可取得的有效價格交易日數；下方時間序列檢定最多採最近 1261 筆價格計算。",
+              "它和前面『有效比較股票數』不同。觀察日數多不等於模型必然有效，仍要看檢定條件與殘差結果。"),
+            h4("定態性與殘差檢查"),
+            tableOutput("v4ts_diag"),
+            h4("ARIMA 模型選擇（AIC 排序）"),
+            tableOutput("v4ts_grid"),
+            p(class = "v23-howto", tags$strong("這兩張表怎麼看？ "),
+              "ADF 用來檢查序列是否有單根；ARIMA 表中的 AIC 越低，表示在這批候選模型中相對較合適，",
+              "並非保證未來預測更準。"),
+            h4("動能持續性檢驗"),
+            tableOutput("v4ts_persist"),
+            p(class = "v23-howto", tags$strong("動能持續性怎麼看？ "),
+              "觀察過去表現能否延續到後續期間；beta 的正負代表方向，R 平方描述擬合程度。",
+              "這項分析與上方的波動預測誤差比較是不同研究問題。")
+          )
+        ),
+
+        div(class = "v15-scope-note",
+            strong("判讀原則："),
+            "預測誤差與殘差檢定回答的是不同問題。誤差較小不等於差異具有統計顯著性；檢定未發現異常也不代表預測一定準確。")
+          )
+        )
       )
     )
   ),
@@ -3142,7 +4068,7 @@ ui <- fluidPage(
   
   div(
     class = "dashboard-footer",
-    "0050 投資研究 Dashboard｜統計研究用途・非投資建議"
+    "0010 Investment Research｜統計研究用途・非投資建議"
   )
 )
 
@@ -3155,12 +4081,508 @@ ui <- fluidPage(
 # 第 2 段：Server
 # ============================================================
 
+
+# ============================================================
 server <- function(input, output, session) {
+  
+  # v5：季度策略回測（下一交易日進場）、GARCH 診斷、樣本外評估
+  source("v5_server.R", local = TRUE)
+
+
+  # v25：季度回測執行後，依已完成且實際回測使用的評分日期提供季別選單。
+  observeEvent(v5_bt(), {
+    z <- v5_bt()
+    if (is.null(z) || !nrow(z$quarters)) return()
+    q <- z$quarters
+    q <- q[order(as.Date(q$評分日), decreasing = TRUE), , drop = FALSE]
+    choices <- stats::setNames(format(as.Date(q$評分日), "%Y-%m-%d"),
+      paste0(format(as.Date(q$評分日), "%Y-%m-%d"),
+        " 評分｜", format(as.Date(q$成交日), "%m/%d"), "－",
+        format(as.Date(q$出場日), "%Y/%m/%d")))
+    shiny::updateSelectInput(session, "v25_rank_quarter", choices = choices,
+      selected = unname(choices[1]))
+  })
+
+  # 不使用事後報酬選股：同 v5_backtest_v4()，先在歷史評分日執行 v4_score_table + v4_pick，
+  # 再用回測所紀錄的下一交易日成交日與出場日計算全體可比較股的未來報酬名次。
+  # 不改原季度回測結果（包括既有 IC、Spread），僅新增獨立相對排名報表。
+  v25_rank_result <- shiny::reactive({
+    z <- v5_bt()
+    key <- as.character(input$v25_rank_quarter)
+    shiny::req(!is.null(z), length(key)==1L, !is.na(key), nzchar(key))
+    q <- z$quarters[format(as.Date(z$quarters$評分日), "%Y-%m-%d") == key,
+                    , drop=FALSE]
+    if (!nrow(q)) return(NULL)
+    q <- q[1, , drop=FALSE]
+    rated <- as.Date(q$評分日[1]); buy_date <- as.Date(q$成交日[1]); exit_date <- as.Date(q$出場日[1])
+    d <- as.data.frame(data())
+    d$date <- as.Date(d$date)
+    d <- d[!is.na(d$date) & is.finite(d$adjusted) & d$adjusted > 0 &
+             d$symbol %in% stock_info$symbol, , drop=FALSE]
+    if (!nrow(d)) return(NULL)
+    sc <- v4_score_table(d[d$date <= rated, , drop=FALSE])
+    if (is.null(sc) || nrow(sc) < 3L) return(NULL)
+    chosen <- v4_pick(sc, n=10, max_industry=V4_SCREEN$max_industry)
+    if (is.null(chosen) || !nrow(chosen)) return(NULL)
+
+    # 同日同股票重複資料如存在，保留最後一筆；不內插缺少的進／出場價格。
+    px <- d[d$date %in% c(buy_date,exit_date),c("symbol","date","adjusted"),drop=FALSE]
+    px <- px[order(px$symbol,px$date),,drop=FALSE]
+    px <- px[!duplicated(px[,c("symbol","date")],fromLast=TRUE),,drop=FALSE]
+    b <- px[px$date==buy_date,,drop=FALSE]
+    e <- px[px$date==exit_date,,drop=FALSE]
+    syms <- as.character(sc$symbol)
+    bp <- b$adjusted[match(syms,b$symbol)]
+    ep <- e$adjusted[match(syms,e$symbol)]
+    r <- ep/bp - 1
+    ok <- is.finite(r) & is.finite(bp) & is.finite(ep) & bp>0 & ep>0
+    if (!any(ok)) return(NULL)
+    t <- sc[ok,,drop=FALSE]
+    t$future_return <- as.numeric(r[ok])
+    t$actual_rank <- rank(-t$future_return, ties.method="min",na.last="keep")
+    t$selected <- t$symbol %in% chosen$symbol
+    t <- t[order(t$actual_rank,-t$p10_smooth),,drop=FALSE]
+    rownames(t) <- NULL
+    selected <- t[t$selected,,drop=FALSE]
+    if (!nrow(selected)) return(NULL)
+    top_k <- min(10L,nrow(t))
+    list(all=t, selected=selected, n=nrow(t), top_k=top_k,
+      hit=sum(selected$actual_rank <= top_k),
+      mean_selected=mean(selected$future_return),
+      mean_universe=mean(t$future_return),
+      rated=rated,buy=buy_date,exit=exit_date)
+  })
+
+  output$v25_rank_status <- shiny::renderUI({
+    if (is.null(input$v5_run_bt) || input$v5_run_bt < 1L)
+      return(tags$p(class="v25-method-hint", "尚未執行季度回測。請先到『季度策略回測』按下執行，再選擇一季查看實際報酬排名。"))
+    if (!shiny::isTruthy(input$v25_rank_quarter))
+      return(tags$p(class="v25-method-hint", "回測完成後即可選擇歷史評分日。"))
+    z <- v25_rank_result()
+    if (is.null(z)) return(tags$p(class="v25-method-hint", "這一季沒有足夠的共同進出場價格可完成相對排名。"))
+    tags$p(class="v25-method-hint",paste0("評分：",format(z$rated),"｜下一交易日進場：",format(z$buy),
+      "｜出場：",format(z$exit),"｜同期可比較：",z$n," 檔股票（未扣交易成本）"))
+  })
+  output$v25_rank_summary <- shiny::renderUI({
+    z <- v25_rank_result();shiny::req(!is.null(z))
+    cell <- function(label,value,desc) div(class="v25-rank-card",tags$small(label),
+       tags$strong(value),tags$small(desc))
+    div(class="v25-rank-grid",
+      cell("入選股票的未來前 10 名命中",sprintf("%d／%d 檔",z$hit,nrow(z$selected)),
+           paste0("全體 ",z$n," 檔，隨機命中比例約 ",sprintf("%.1f%%",100*z$top_k/z$n))),
+      cell("入選股票平均報酬",sprintf("%+.2f%%",100*z$mean_selected),
+           "每檔股票算一票、取算術平均；未扣交易成本"),
+      cell("比全體股票平均高／低多少",sprintf("%+.2f 個百分點",100*(z$mean_selected-z$mean_universe)),
+           paste0("同期可比較的 ",z$n," 檔股票（含入選股）平均報酬 ",
+                  sprintf("%+.2f%%",100*z$mean_universe)))
+    )
+  })
+  output$v25_rank_selected <- shiny::renderTable({
+    z <- v25_rank_result();shiny::req(!is.null(z))
+    t <- z$selected[order(z$selected$rank),,drop=FALSE]
+    data.frame(選股時評分名次 = t$rank,
+      股票 = paste0(t$name,"（",t$symbol,"）"),
+      選股分數 = sprintf("%.1f",t$p10_smooth),
+      未來實際報酬 = sprintf("%+.2f%%",100*t$future_return),
+      實際報酬排名 = paste0(t$actual_rank,"／",z$n),
+      check.names=FALSE,stringsAsFactors=FALSE)
+  },striped=TRUE,bordered=TRUE,hover=TRUE)
+  output$v25_rank_all <- shiny::renderTable({
+    z <- v25_rank_result();shiny::req(!is.null(z))
+    t <- z$all
+    data.frame(實際報酬名次=t$actual_rank,
+      股票=paste0(t$name,"（",t$symbol,"）"),
+      `0010入選`=ifelse(t$selected,"✓","—"),
+      選股時分數名次=t$rank,
+      分數=sprintf("%.1f",t$p10_smooth),
+      未來實際報酬=sprintf("%+.2f%%",100*t$future_return),
+      check.names=FALSE,stringsAsFactors=FALSE)
+  },striped=TRUE,bordered=TRUE,hover=TRUE)
+  output$v25_rank_csv <- shiny::downloadHandler(
+    filename=function(){paste0("0010_future_return_rank_",input$v25_rank_quarter,".csv")},
+    content=function(file){
+      z <- v25_rank_result();shiny::req(!is.null(z))
+      t <- z$all
+      result <- data.frame(評分日=format(z$rated),成交日=format(z$buy),出場日=format(z$exit),
+        symbol=t$symbol,name=t$name,selected=t$selected,
+        score_rank=t$rank,score=t$p10_smooth,
+        realized_return=t$future_return,realized_rank=t$actual_rank,
+        stringsAsFactors=FALSE)
+      utils::write.csv(result,file,row.names=FALSE,fileEncoding="UTF-8")
+    })
+
+
+  # v22：全體樣本外誤差比較。沿用 v5_garch_oos()；按鈕觸發，結果在同一工作階段快取。
+  v22_all_oos <- shiny::eventReactive(input$v22_run_all_oos, {
+    d <- as.data.frame(data())
+    d <- d[d$symbol %in% stock_info$symbol &
+             is.finite(d$adjusted) & d$adjusted > 0 & !is.na(d$date), , drop = FALSE]
+    d <- d[order(d$symbol, d$date), , drop = FALSE]
+    by_stock <- split(d$adjusted, as.character(d$symbol))
+    syms <- unique(as.character(stock_info$symbol))
+    rows <- vector("list", length(syms))
+    shiny::withProgress(message = "全體 GARCH 樣本外驗證中…", value = 0, {
+      for (k in seq_along(syms)) {
+        symbol <- syms[k]
+        shiny::setProgress(k / length(syms),
+                           detail = paste0("第 ", k, " / ", length(syms), " 檔：", symbol))
+        px <- by_stock[[symbol]]
+        obj <- if (is.null(px) || length(px) < 601L) NULL else
+          tryCatch(v5_garch_oos(px), error = function(e) NULL)
+        q <- if (!is.null(obj) && !is.null(obj$table)) obj$table else NULL
+        complete <- !is.null(q) && nrow(q) == 3L &&
+          all(c("模型", "QLIKE", "RMSE", "MAE") %in% names(q)) &&
+          all(is.finite(q$QLIKE)) && all(is.finite(q$RMSE)) &&
+          all(is.finite(q$MAE)) && isTRUE(obj$fit$converged)
+        if (complete) {
+          model_order <- c("GARCH(1,1)", "EWMA(0.94)", "21 日滾動")
+          idx <- match(model_order, q$模型)
+          vals <- q$QLIKE[idx]
+          mae_vals <- q$MAE[idx]
+          rmse_vals <- q$RMSE[idx]
+          complete <- !anyNA(idx) && all(is.finite(vals)) &&
+            all(is.finite(mae_vals)) && all(is.finite(rmse_vals))
+        }
+        if (complete) {
+          best <- if (sum(abs(vals - min(vals)) < 1e-8) > 1L) "並列" else
+            model_order[which.min(vals)]
+          rows[[k]] <- data.frame(
+            股票代號 = symbol, 股票 = get_stock_name_one(symbol),
+            狀態 = "有效", 樣本外天數 = obj$n_test,
+            GARCH = vals[1], EWMA = vals[2], ROLL21 = vals[3],
+            GARCH_MAE = mae_vals[1], EWMA_MAE = mae_vals[2], ROLL21_MAE = mae_vals[3],
+            GARCH_RMSE = rmse_vals[1], EWMA_RMSE = rmse_vals[2], ROLL21_RMSE = rmse_vals[3],
+            最佳方法 = best, stringsAsFactors = FALSE
+          )
+        } else {
+          status <- if (is.null(px) || length(px) < 601L) "資料不足" else
+            if (!is.null(obj) && !is.null(obj$fit) &&
+                !isTRUE(obj$fit$converged)) "估計未收斂" else "估計／指標無效"
+          rows[[k]] <- data.frame(
+            股票代號 = symbol, 股票 = get_stock_name_one(symbol),
+            狀態 = status, 樣本外天數 = NA_integer_,
+            GARCH = NA_real_, EWMA = NA_real_, ROLL21 = NA_real_,
+            GARCH_MAE = NA_real_, EWMA_MAE = NA_real_, ROLL21_MAE = NA_real_,
+            GARCH_RMSE = NA_real_, EWMA_RMSE = NA_real_, ROLL21_RMSE = NA_real_,
+            最佳方法 = "—", stringsAsFactors = FALSE
+          )
+        }
+      }
+    })
+    all_stocks <- do.call(rbind, rows)
+    valid <- all_stocks[all_stocks$狀態 == "有效", , drop = FALSE]
+    mods <- c("GARCH(1,1)", "EWMA(0.94)", "21 日滾動")
+    keys <- c("GARCH", "EWMA", "ROLL21")
+    means <- if (nrow(valid)) vapply(keys, function(z) mean(valid[[z]]), numeric(1)) else rep(NA_real_, 3)
+    # 與 QLIKE 相同有效股票集合，逐檔計算後等權平均；RMSE 不宣稱為全體合併 RMSE。
+    mean_mae <- if (nrow(valid)) vapply(paste0(keys, "_MAE"),
+      function(z) mean(valid[[z]]), numeric(1)) else rep(NA_real_, 3)
+    mean_rmse <- if (nrow(valid)) vapply(paste0(keys, "_RMSE"),
+      function(z) mean(valid[[z]]), numeric(1)) else rep(NA_real_, 3)
+    wins <- vapply(mods, function(z) sum(valid$最佳方法 == z), integer(1))
+    avg <- data.frame(模型 = mods, 平均QLIKE = unname(means),
+                      平均MAE = unname(mean_mae), 平均RMSE = unname(mean_rmse),
+                      領先股票數 = unname(wins), stringsAsFactors = FALSE)
+    list(stocks = all_stocks, valid = valid, avg = avg, total = length(syms))
+  }, ignoreInit = TRUE)
+
+  output$v22_all_status <- shiny::renderUI({
+    z <- v22_all_oos()
+    if (is.null(z)) return(tags$div(class = "v22-all-note",
+      "尚未執行全體樣本外比較。點擊上方按鈕後，才會對各檔股票進行估計與測試。"))
+    if (!nrow(z$valid)) return(tags$div(class = "v22-all-note",
+      "本次沒有可用的完整比較結果。請檢查個股資料長度與模型收斂狀態。"))
+    tags$p(class = "v22-note", paste0("本次有效比較 ", nrow(z$valid),
+      " / ", z$total, " 檔；其餘 ", z$total-nrow(z$valid),
+      " 檔因資料不足、估計未收斂或指標無效未列入平均。"))
+  })
+
+  output$v22_all_kpis <- shiny::renderUI({
+    z <- v22_all_oos()
+    if (is.null(z) || !nrow(z$valid)) return(NULL)
+    n <- nrow(z$valid)
+    gw <- sum(z$valid$最佳方法 == "GARCH(1,1)")
+    best_mae <- z$avg[which.min(z$avg$平均MAE), , drop = FALSE]
+    card <- function(label, val, desc) tags$div(class = "v22-kpi",
+      tags$div(class = "v22-kpi-label", label),
+      tags$div(class = "v22-kpi-num", val),
+      tags$div(class = "v22-kpi-desc", desc))
+    tags$div(class = "v22-kpis",
+      card("有效比較股票", paste0(n, " / ", z$total, " 檔"), "逐檔 80% / 20% 樣本外測試"),
+      card("GARCH 領先比例", sprintf("%.1f%%", 100*gw/n), paste0(gw, " 檔的 QLIKE 最低")),
+      card("全體平均 MAE 最低", sprintf("%.3f 百分點", best_mae$平均MAE),
+           paste0(best_mae$模型, "（每日幅度誤差）")))
+  })
+
+  # v23：將三個散點改為「QLIKE 最低的股票檔數」單色長條；QLIKE 原始數值仍列於下方表格。
+  output$v22_all_qlike_plot <- shiny::renderPlot({
+    z <- v22_all_oos()
+    shiny::req(!is.null(z), nrow(z$valid) > 0L)
+    t <- z$avg
+    n <- nrow(z$valid)
+    t <- t[order(t$領先股票數, decreasing = TRUE), , drop = FALSE]
+    t$模型 <- factor(t$模型, levels = rev(as.character(t$模型)))
+    t$文字位置 <- t$領先股票數 + max(0.7, n * 0.018)
+    t$標籤 <- sprintf("%d 檔（%.1f%%）", t$領先股票數, 100 * t$領先股票數 / n)
+    ggplot2::ggplot(t, ggplot2::aes(x = 領先股票數, y = 模型)) +
+      ggplot2::geom_col(width = 0.56, fill = "#6f98b5") +
+      ggplot2::geom_text(ggplot2::aes(x = 文字位置, label = 標籤),
+                         hjust = 0, color = "#3f5e77", size = 4) +
+      ggplot2::scale_x_continuous(
+        limits = c(0, max(3, n * 1.25)),
+        breaks = function(x) pretty(x, n = 5),
+        expand = ggplot2::expansion(mult = c(0, 0))) +
+      ggplot2::labs(x = "QLIKE 最低的股票數（檔）", y = NULL) +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(panel.grid.major.y = ggplot2::element_blank(),
+                     panel.grid.minor = ggplot2::element_blank(),
+                     plot.margin = ggplot2::margin(8, 12, 8, 8))
+  })
+
+  # v24：全體平均 MAE，使用與 QLIKE 完全相同的有效股票樣本。
+  # 單位是百分點（r = 100 * diff(log(price))），不是錯誤率／準確率。
+  output$v24_all_mae_plot <- shiny::renderPlot({
+    z <- v22_all_oos()
+    shiny::req(!is.null(z), nrow(z$valid) > 0L)
+    t <- z$avg[order(z$avg$平均MAE, decreasing = FALSE), , drop = FALSE]
+    t$模型 <- factor(t$模型, levels = rev(as.character(t$模型)))
+    t$標籤 <- sprintf("%.3f 百分點", t$平均MAE)
+    hi <- max(t$平均MAE)
+    t$文字位置 <- t$平均MAE + max(hi * 0.025, 0.008)
+    ggplot2::ggplot(t, ggplot2::aes(x = 平均MAE, y = 模型)) +
+      ggplot2::geom_col(width = 0.56, fill = "#729ab5") +
+      ggplot2::geom_text(ggplot2::aes(x = 文字位置, label = 標籤),
+                         hjust = 0, color = "#3f5e77", size = 3.9) +
+      ggplot2::scale_x_continuous(
+        limits = c(0, max(0.20, hi * 1.35)),
+        breaks = function(x) pretty(x, n = 5),
+        expand = ggplot2::expansion(mult = c(0, 0))) +
+      ggplot2::labs(x = "各股票等權平均 MAE（百分點；越低越好）", y = NULL) +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(panel.grid.major.y = ggplot2::element_blank(),
+                     panel.grid.minor = ggplot2::element_blank(),
+                     plot.margin = ggplot2::margin(8, 12, 8, 8))
+  })
+
+  output$v22_all_summary_table <- shiny::renderTable({
+    z <- v22_all_oos()
+    shiny::req(!is.null(z), nrow(z$valid) > 0L)
+    t <- z$avg[order(z$avg$平均MAE), , drop = FALSE]
+    data.frame(方法 = t$模型,
+               '平均MAE（百分點）' = sprintf("%.3f", t$平均MAE),
+               '平均RMSE（百分點）' = sprintf("%.3f", t$平均RMSE),
+               '平均QLIKE' = sprintf("%.4f", t$平均QLIKE),
+               領先股票數 = t$領先股票數,
+               領先比例 = sprintf("%.1f%%", 100*t$領先股票數/nrow(z$valid)),
+               check.names = FALSE)
+  }, striped = TRUE, bordered = TRUE, hover = TRUE)
+
+  output$v22_all_conclusion <- shiny::renderUI({
+    z <- v22_all_oos()
+    if (is.null(z) || !nrow(z$valid)) return(NULL)
+    t <- z$avg
+    best_qlike <- t$模型[which.min(t$平均QLIKE)]
+    best_mae <- t$模型[which.min(t$平均MAE)]
+    n <- nrow(z$valid)
+    tags$div(class = "v22-all-note",
+      tags$strong("本次結果怎麼看？"),
+      tags$div(paste0("以平均 MAE 衡量每日幅度誤差，", best_mae,
+        " 最低；以平均 QLIKE 衡量波動預測，", best_qlike, " 最低。")),
+      tags$div(paste0("GARCH 在 ", sum(z$valid$最佳方法 == "GARCH(1,1)"),
+        " / ", n, " 檔股票的 QLIKE 領先。不同指標可能有不同結論；",
+        "誤差較小不等於差異具有統計顯著性，也不保證投資報酬。")))
+  })
+
+  output$v22_all_stock_table <- shiny::renderTable({
+    z <- v22_all_oos()
+    shiny::req(!is.null(z))
+    t <- z$stocks
+    data.frame(股票 = paste0(t$股票, "（", t$股票代號, "）"),
+      狀態 = t$狀態, 樣本外日數 = ifelse(is.na(t$樣本外天數), "—", t$樣本外天數),
+      GARCH = ifelse(is.finite(t$GARCH), sprintf("%.4f", t$GARCH), "—"),
+      EWMA = ifelse(is.finite(t$EWMA), sprintf("%.4f", t$EWMA), "—"),
+      `21日滾動` = ifelse(is.finite(t$ROLL21), sprintf("%.4f", t$ROLL21), "—"),
+      QLIKE最低 = t$最佳方法, check.names = FALSE)
+  }, striped = TRUE, bordered = TRUE, hover = TRUE)
+
+  output$v22_all_download <- shiny::downloadHandler(
+    filename = function() paste0("0010_oos_compare_", Sys.Date(), ".csv"),
+    content = function(file) {
+      z <- v22_all_oos()
+      shiny::req(!is.null(z))
+      utils::write.csv(z$stocks, file = file, row.names = FALSE, fileEncoding = "UTF-8")
+    }
+  )
+
+  # 同一張單檔圖呈現全部三種受比較模型，沿用 v5_goos() 的現有輸出。
+  output$v22_single_all_plot <- shiny::renderPlot({
+    z <- v5_goos()
+    shiny::req(!is.null(z), !is.null(z$series), nrow(z$series) > 0L)
+    s <- z$series
+    d <- rbind(
+      data.frame(日數 = seq_len(nrow(s)), 值 = s$obs, 模型 = "實際 |日報酬|"),
+      data.frame(日數 = seq_len(nrow(s)), 值 = s$garch, 模型 = "GARCH 預測"),
+      data.frame(日數 = seq_len(nrow(s)), 值 = s$ewma, 模型 = "EWMA 預測"),
+      data.frame(日數 = seq_len(nrow(s)), 值 = s$roll, 模型 = "21 日滾動")
+    )
+    ggplot2::ggplot(d, ggplot2::aes(x = 日數, y = 值, colour = 模型)) +
+      ggplot2::geom_line(linewidth = 0.65, alpha = 0.88) +
+      ggplot2::labs(title = "樣本外每日波動幅度比較", x = "測試期間交易日序號",
+                    y = "日波動／|報酬|（%）", colour = NULL) +
+      ggplot2::theme_minimal() +
+      ggplot2::theme(legend.position = "bottom",
+                     plot.title = ggplot2::element_text(hjust = 0.5, face = "bold"))
+  })
+
+  # v15：模型驗證頁的白話摘要；讀取現有診斷與樣本外計算結果，不改模型。
+  output$v15_forecast_summary <- shiny::renderUI({
+    o <- v5_goos()
+    if (is.null(o) || is.null(o$table) || !nrow(o$table)) {
+      return(tags$div(
+        tags$strong(class = "v15-key-number", "尚無可比較結果"),
+        tags$p(class = "v15-key-copy", "目前樣本不足，或尚未取得可用的模型估計結果。")
+      ))
+    }
+    t <- o$table
+    g_idx <- which(t$模型 == "GARCH(1,1)")
+    if (length(g_idx) != 1L || nrow(t) < 2L) {
+      return(tags$p(class = "v15-key-copy", "此檔股票沒有完整的模型比較結果。"))
+    }
+    metrics <- c("RMSE", "MAE", "QLIKE")
+    complete <- all(vapply(metrics, function(k) {
+      k %in% names(t) && all(is.finite(as.numeric(t[[k]])))
+    }, logical(1)))
+    if (!complete) {
+      return(tags$p(class = "v15-key-copy", "目前有誤差指標尚未取得有效數值，請參考下方完整表格。"))
+    }
+    wins <- vapply(metrics, function(k) {
+      as.numeric(t[[k]][g_idx]) < min(as.numeric(t[[k]][-g_idx]))
+    }, logical(1))
+    n_win <- sum(wins)
+    best_qlike <- as.character(t$模型[which.min(as.numeric(t$QLIKE))])
+    summary <- if (n_win == 3L) {
+      "GARCH 的三項誤差都低於另外兩種方法。"
+    } else if (n_win > 0L) {
+      paste0("GARCH 在 ", n_win, " 項指標表現最佳；不同指標的結論不完全一致。")
+    } else {
+      "GARCH 在這三項指標都沒有明確領先其他兩種方法。"
+    }
+    tags$div(
+      tags$strong(class = "v15-key-number", paste0("GARCH：", n_win, " / 3 項誤差領先")),
+      tags$p(class = "v15-key-copy", summary),
+      tags$p(class = "v15-key-copy", paste0("QLIKE 最低：", best_qlike, "；樣本外交易日 ", o$n_test, " 日。"))
+    )
+  })
+
+  output$v15_diag_summary <- shiny::renderUI({
+    g <- v5_gdiag()
+    if (is.null(g) || is.null(g$table)) {
+      return(tags$div(
+        tags$strong(class = "v15-key-number", "尚無診斷結果"),
+        tags$p(class = "v15-key-copy", "目前未取得可用的 GARCH 殘差檢定。")
+      ))
+    }
+    ps <- as.numeric(g$table$p值)
+    n_valid <- sum(is.finite(ps))
+    if (!n_valid) {
+      return(tags$p(class = "v15-key-copy", "目前檢定 p 值不足，無法進行摘要判讀。"))
+    }
+    flagged <- sum(is.finite(ps) & ps <= 0.05)
+    fit_text <- if (isTRUE(g$fit$converged)) "估計已收斂。" else "估計收斂狀況需留意。"
+    message <- if (flagged == 0L) {
+      "目前檢定未發現顯著殘留相關；仍不代表模型一定正確。"
+    } else {
+      paste0("有 ", flagged, " 項檢定 p 值不大於 0.05，表示可能仍存在未捕捉的結構。")
+    }
+    tags$div(
+      tags$strong(class = "v15-key-number", paste0(flagged, " / ", n_valid, " 項需留意")),
+      tags$p(class = "v15-key-copy", message),
+      tags$p(class = "v15-key-copy", fit_text)
+    )
+  })
   # ============================================================
   # v4 首頁：0010 總覽
   # 貼在 server 內（位置任意，建議最後）
   # 依賴：v4_score.R、v4_drawdown.R
   # ============================================================
+  # v11：第二頁雙排名對照用資料；只讀現有 v4_tbl()，不重算或改寫模型分數。
+  output$rank_compare_mom_top <- shiny::renderTable({
+    t <- v4_tbl()
+    shiny::req(!is.null(t), nrow(t) > 0)
+    o <- utils::head(t[order(-t$mom_score), , drop = FALSE], 10)
+    data.frame(
+      名次 = seq_len(nrow(o)),
+      股票 = paste0(o$name, "（", o$symbol, "）"),
+      動能分 = sprintf("%.1f", o$mom_score),
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+  }, striped = TRUE, bordered = TRUE, hover = TRUE)
+
+  output$rank_compare_risk_top <- shiny::renderTable({
+    t <- v4_tbl()
+    shiny::req(!is.null(t), nrow(t) > 0)
+    o <- utils::head(t[order(-t$risk_score), , drop = FALSE], 10)
+    data.frame(
+      名次 = seq_len(nrow(o)),
+      股票 = paste0(o$name, "（", o$symbol, "）"),
+      風險穩定分 = sprintf("%.1f", o$risk_score),
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+  }, striped = TRUE, bordered = TRUE, hover = TRUE)
+
+  # v12：兩側長條圖直接顯示 Top 10。沿用 v4_tbl() 現有分數，完全不改計算。
+  rank_compare_bar_v8 <- function(t, score_key, bar_color, axis_name) {
+    x <- t[is.finite(t[[score_key]]), , drop = FALSE]
+    x <- utils::head(x[order(-x[[score_key]], x$symbol), , drop = FALSE], 10)
+    shiny::validate(shiny::need(nrow(x) > 0, "目前沒有可用的評分資料。"))
+    names <- paste0(x$name, "（", x$symbol, "）")
+    df <- data.frame(stock = factor(names, levels = rev(names)), score = x[[score_key]])
+    ggplot2::ggplot(df, ggplot2::aes(x = stock, y = score)) +
+      ggplot2::geom_col(fill = bar_color, width = 0.7) +
+      ggplot2::geom_text(ggplot2::aes(label = sprintf("%.1f", score)),
+                         hjust = -0.12, size = 3.5, fontface = "bold", color = "#405369") +
+      ggplot2::coord_flip(clip = "off") +
+      ggplot2::scale_y_continuous(limits = c(0, 112), breaks = c(0, 25, 50, 75, 100),
+                                  expand = ggplot2::expansion(mult = c(0, 0))) +
+      ggplot2::labs(x = NULL, y = axis_name) +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(plot.title = ggplot2::element_blank(),
+                     panel.grid.major.y = ggplot2::element_blank(),
+                     panel.grid.minor = ggplot2::element_blank(),
+                     axis.text.y = ggplot2::element_text(size = 10.2, color = "#344f66"),
+                     axis.text.x = ggplot2::element_text(size = 10, color = "#73869a"),
+                     axis.title.x = ggplot2::element_text(size = 10, color = "#62778b"),
+                     plot.margin = ggplot2::margin(8, 23, 8, 7))
+  }
+
+  output$rank_compare_mom_chart_v8 <- shiny::renderPlot({
+    t <- v4_tbl()
+    shiny::req(!is.null(t), nrow(t) > 0)
+    rank_compare_bar_v8(t, "mom_score", "#5289c0", "動能分（0～100）")
+  }, res = 110)
+
+  output$rank_compare_risk_chart_v8 <- shiny::renderPlot({
+    t <- v4_tbl()
+    shiny::req(!is.null(t), nrow(t) > 0)
+    rank_compare_bar_v8(t, "risk_score", "#d39651", "風險穩定分（0～100）")
+  }, res = 110)
+
+  # 原始 v6_mom_table 在 v5_server.R；改成新的顯示表，避免動到共用模組。
+  output$rank_compare_mom_detail <- shiny::renderTable({
+    t <- v4_tbl()
+    shiny::req(!is.null(t), nrow(t) > 0)
+    o <- t[order(-t$mom_score), , drop = FALSE]
+    data.frame(
+      名次 = seq_len(nrow(o)),
+      股票 = paste0(o$name, "（", o$symbol, "）"),
+      動能分 = sprintf("%.1f", o$mom_score),
+      `6個月報酬` = ifelse(is.finite(o$r6), sprintf("%+.1f%%", o$r6 * 100), "—"),
+      `12-1個月報酬` = ifelse(is.finite(o$r12_1), sprintf("%+.1f%%", o$r12_1 * 100), "—"),
+      `0010分` = sprintf("%.1f", o$p10_smooth),
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+  }, striped = TRUE, bordered = TRUE, hover = TRUE)
+
   output$v4_risk_decomp <- shiny::renderTable({
     t <- v4_tbl()
     shiny::req(!is.null(t))
@@ -3218,6 +4640,238 @@ server <- function(input, output, session) {
     v4_weights(s, scheme = "inv_vol", cap = 0.20)
   })
   
+  # ============================================================
+  # v10 第二頁：動能／風險權重實驗（只讀既有分數，不影響 v4_tbl / v4_sel）
+  # ============================================================
+  rank_lab_mix <- function(t, momentum_pct = 70) {
+    if (is.null(t) || !nrow(t)) return(t)
+    x <- t
+    a <- max(0, min(100, as.numeric(momentum_pct))) / 100
+    x$p10_score <- a * x$mom_score + (1 - a) * x$risk_score
+    x$p10_smooth <- x$p10_score  # 現行排名未啟用跨期平滑
+    x <- x[order(-x$p10_score, x$symbol), , drop = FALSE]
+    x$rank <- seq_len(nrow(x))
+    rownames(x) <- NULL
+    x
+  }
+
+  shiny::observeEvent(input$rank_lab_all_mom, {
+    shiny::updateSliderInput(session, "rank_lab_mom_weight", value = 100)
+  })
+  shiny::observeEvent(input$rank_lab_all_risk, {
+    shiny::updateSliderInput(session, "rank_lab_mom_weight", value = 0)
+  })
+  shiny::observeEvent(input$rank_lab_half, {
+    shiny::updateSliderInput(session, "rank_lab_mom_weight", value = 50)
+  })
+  shiny::observeEvent(input$rank_lab_default, {
+    shiny::updateSliderInput(session, "rank_lab_mom_weight", value = 70)
+  })
+
+  output$rank_lab_date <- shiny::renderText({
+    d <- as.Date(rownames(v4_pm()))
+    as.character(max(d, na.rm = TRUE))
+  })
+
+  output$rank_lab_mix_text <- shiny::renderText({
+    w <- input$rank_lab_mom_weight
+    shiny::req(!is.null(w))
+    paste0(w, "% ／ ", 100 - w, "%")
+  })
+  output$rank_lab_formula <- shiny::renderText({
+    w <- input$rank_lab_mom_weight
+    shiny::req(!is.null(w))
+    sprintf("%.2f × 動能分 ＋ %.2f × 風險分", w / 100, (100 - w) / 100)
+  })
+
+  rank_lab_current <- shiny::reactive({
+    shiny::req(!is.null(input$rank_lab_mom_weight))
+    rank_lab_mix(v4_tbl(), input$rank_lab_mom_weight)
+  })
+  rank_lab_selection <- shiny::reactive({
+    x <- rank_lab_current()
+    shiny::req(!is.null(x), nrow(x) > 0)
+    v4_pick(x, n = 10, max_industry = V4_SCREEN$max_industry)
+  })
+
+  output$rank_lab_top10_plot <- shiny::renderPlot({
+    s <- rank_lab_selection()
+    shiny::validate(shiny::need(nrow(s) > 0, "目前沒有符合選股條件的股票。"))
+    d <- data.frame(
+      label = factor(paste0(s$name, "（", s$symbol, "）"),
+                     levels = rev(paste0(s$name, "（", s$symbol, "）"))),
+      score = s$p10_score
+    )
+    ggplot2::ggplot(d, ggplot2::aes(x = label, y = score)) +
+      ggplot2::geom_col(fill = "#7fa9d3", width = 0.7) +
+      ggplot2::coord_flip() +
+      ggplot2::scale_y_continuous(limits = c(0, 100), expand = ggplot2::expansion(mult = c(0, 0.03))) +
+      ggplot2::labs(title = "目前權重下選出的十檔", x = NULL, y = "合成分數（0～100）") +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, face = "bold"))
+  })
+
+  output$rank_lab_selected_table <- shiny::renderTable({
+    s <- rank_lab_selection()
+    shiny::req(nrow(s) > 0)
+    data.frame(
+      入選序 = seq_len(nrow(s)),
+      股票 = paste0(s$name, "（", s$symbol, "）"),
+      產業 = s$industry,
+      動能分 = sprintf("%.1f", s$mom_score),
+      風險分 = sprintf("%.1f", s$risk_score),
+      合成分 = sprintf("%.1f", s$p10_score),
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+  }, striped = TRUE, bordered = TRUE, hover = TRUE)
+
+  output$rank_lab_full_table <- shiny::renderTable({
+    t <- rank_lab_current()
+    s <- rank_lab_selection()
+    shiny::req(!is.null(t))
+    state <- ifelse(!t$pass, t$reason,
+                    ifelse(t$symbol %in% s$symbol, "入選", "未入選（名次或產業上限）"))
+    data.frame(
+      名次 = seq_len(nrow(t)),
+      股票 = paste0(t$name, "（", t$symbol, "）"),
+      動能分 = sprintf("%.1f", t$mom_score),
+      風險分 = sprintf("%.1f", t$risk_score),
+      合成分 = sprintf("%.1f", t$p10_score),
+      篩選狀態 = state,
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+  }, striped = TRUE, bordered = TRUE, hover = TRUE)
+
+  # 歷史驗證只在按鈕觸發時計算；當期權重滑桿不會觸發重算或修改正式持倉。
+  rank_lab_history <- shiny::eventReactive(input$rank_lab_run_history, {
+    custom_w <- shiny::isolate(input$rank_lab_mom_weight)
+    shiny::req(!is.null(custom_w))
+    cases <- c("純動能 100／0" = 100, "純風險 0／100" = 0,
+               "各半 50／50" = 50, "現行 70／30" = 70,
+               "自訂權重" = as.numeric(custom_w))
+    d <- as.data.frame(data())
+    d$date <- as.Date(d$date)
+    d <- d[d$symbol %in% c("0050", stock_info$symbol) &
+             is.finite(d$adjusted) & d$adjusted > 0 & !is.na(d$date),
+           c("date", "symbol", "adjusted"), drop = FALSE]
+    d <- d[order(d$date, d$symbol), , drop = FALSE]
+    shiny::validate(shiny::need(nrow(d) > 0, "沒有足夠歷史價格資料。"))
+
+    wide <- as.data.frame(tidyr::pivot_wider(d,
+               names_from = symbol, values_from = adjusted))
+    wide <- wide[order(wide$date), , drop = FALSE]
+    dates <- as.Date(wide$date)
+    pm <- as.matrix(wide[, setdiff(names(wide), "date"), drop = FALSE])
+    storage.mode(pm) <- "double"
+    rownames(pm) <- as.character(dates)
+    # 和既有 v5 季度回測共用季末定義；評分日後下一交易日買入、持有 63 交易日。
+    quarters <- v5_quarter_ends(dates)
+    quarters <- quarters[quarters > 300 & quarters + 64 <= length(dates)]
+    shiny::validate(shiny::need(length(quarters) > 0, "尚無可檢驗的完整季度。"))
+
+    hist <- list()
+    shiny::withProgress(message = "比較歷史評分權重…", value = 0, {
+      for (k in seq_along(quarters)) {
+        i <- quarters[k]
+        shiny::setProgress(k / length(quarters),
+          detail = paste0("第 ", k, "／", length(quarters), " 個評分季"))
+        score <- try(v4_score_table(d[d$date <= dates[i], , drop = FALSE]), silent = TRUE)
+        if (inherits(score, "try-error") || is.null(score) || nrow(score) < 20) next
+
+        buy_i <- i + 1L
+        sell_i <- buy_i + 63L
+        if (sell_i > nrow(pm)) next
+        buy_px <- pm[buy_i, ]
+        sell_px <- pm[sell_i, ]
+        fwd <- sell_px / buy_px - 1
+        fwd[!is.finite(buy_px) | buy_px <= 0 | !is.finite(sell_px) |
+              sell_px <= 0 | !is.finite(fwd)] <- NA_real_
+
+        for (case_name in names(cases)) {
+          w <- cases[[case_name]]
+          t <- rank_lab_mix(score, w)
+          selected <- v4_pick(t, n = 10, max_industry = V4_SCREEN$max_industry)
+          if (nrow(selected) < 3) next
+          eligible <- t[t$pass & is.finite(t$p10_score), , drop = FALSE]
+          bottom_pool <- eligible[!eligible$symbol %in% selected$symbol, , drop = FALSE]
+          bottom_syms <- utils::tail(bottom_pool$symbol, 10)
+
+          top_fwd <- fwd[match(selected$symbol, names(fwd))]
+          bottom_fwd <- fwd[match(bottom_syms, names(fwd))]
+          top_mean <- if (sum(is.finite(top_fwd)) >= 3) mean(top_fwd, na.rm = TRUE) else NA_real_
+          bottom_mean <- if (length(bottom_syms) >= 3 && sum(is.finite(bottom_fwd)) >= 3)
+            mean(bottom_fwd, na.rm = TRUE) else NA_real_
+          spread <- if (is.finite(top_mean) && is.finite(bottom_mean))
+            top_mean - bottom_mean else NA_real_
+
+          ranked_syms <- eligible$symbol
+          fut <- fwd[match(ranked_syms, names(fwd))]
+          raw_score <- eligible$p10_score
+          ok <- is.finite(raw_score) & is.finite(fut)
+          ic <- if (sum(ok) >= 5 && stats::sd(raw_score[ok]) > 0 &&
+                    stats::sd(fut[ok]) > 0)
+            suppressWarnings(stats::cor(raw_score[ok], fut[ok], method = "spearman"))
+          else NA_real_
+
+          hist[[length(hist) + 1L]] <- data.frame(
+            scenario = case_name, pct = w, date = dates[i],
+            top = top_mean, spread = spread, ic = ic,
+            stringsAsFactors = FALSE)
+        }
+      }
+    })
+    shiny::validate(shiny::need(length(hist) > 0, "歷史有效樣本不足，無法完成比較。"))
+    raw <- do.call(rbind, hist)
+    # 公平比較：五種方案只使用三項驗證結果皆有效的共同季度。
+    # 不因某策略少了有效價格，而偷偷更換比較期間。
+    common_dates <- unique(as.character(raw$date))
+    common_dates <- common_dates[vapply(common_dates, function(day) {
+      z <- raw[as.character(raw$date) == day, , drop = FALSE]
+      all(names(cases) %in% z$scenario) &&
+        all(is.finite(z$top) & is.finite(z$spread) & is.finite(z$ic))
+    }, logical(1))]
+    shiny::validate(shiny::need(length(common_dates) > 0,
+      "五種方案沒有共同的完整驗證季度；請確認歷史資料足夠。"))
+    raw <- raw[as.character(raw$date) %in% common_dates, , drop = FALSE]
+    summarise_one <- function(label) {
+      z <- raw[raw$scenario == label, , drop = FALSE]
+      safe_mean <- function(x) if (any(is.finite(x))) mean(x[is.finite(x)]) else NA_real_
+      data.frame(scenario = label, weight = cases[[label]],
+                 n = sum(is.finite(z$top)),
+                 top = safe_mean(z$top), spread = safe_mean(z$spread),
+                 ic = safe_mean(z$ic), stringsAsFactors = FALSE)
+    }
+    list(summary = do.call(rbind, lapply(names(cases), summarise_one)),
+         from = min(raw$date), to = max(raw$date), custom = custom_w)
+  })
+
+  output$rank_lab_history_status <- shiny::renderText({
+    if (is.null(input$rank_lab_run_history) || input$rank_lab_run_history == 0)
+      return("尚未執行歷史比較；可先調整滑桿觀察當期排名。")
+    h <- rank_lab_history()
+    shiny::req(!is.null(h))
+    paste0("完成：共同評分日 ", h$from, " ～ ", h$to,
+           "｜自訂權重以按下按鈕時的 ", h$custom, "／", 100-h$custom,
+           " 計算；調整滑桿後請重新按『執行歷史比較』。")
+  })
+  output$rank_lab_history_table <- shiny::renderTable({
+    if (is.null(input$rank_lab_run_history) || input$rank_lab_run_history == 0) return(NULL)
+    h <- rank_lab_history()
+    shiny::req(!is.null(h))
+    t <- h$summary
+    p <- function(v) ifelse(is.finite(v), sprintf("%+.2f%%", 100 * v), "—")
+    fmt_ic <- function(v) ifelse(is.finite(v), sprintf("%+.3f", v), "—")
+    data.frame(
+      評分方案 = ifelse(t$scenario == "自訂權重",
+                      paste0("自訂 ", t$weight, "／", 100-t$weight), t$scenario),
+      有效季數 = t$n,
+      `Top10後續63日平均報酬` = p(t$top),
+      `Top10－Bottom10` = p(t$spread),
+      `平均Spearman IC` = fmt_ic(t$ic),
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+  }, striped = TRUE, bordered = TRUE, hover = TRUE)
+
   # ---- 上一次再平衡日（最近一個季末）----
   v4_reb <- shiny::reactive({
     m <- v4_pm()
@@ -3241,6 +4895,198 @@ server <- function(input, output, session) {
                value = x / x[1])
   })
   
+  output$v7_home_date <- shiny::renderText(as.character(latest_date()))
+  output$v7_home_date_second <- shiny::renderText(as.character(latest_date()))
+  output$v7_home_period <- shiny::renderText({
+    z <- v7_home_pair()
+    paste0(as.character(min(z$date)), " ～ ", as.character(max(z$date)))
+  })
+  output$v7_home_period_second <- shiny::renderText({
+    z <- v7_home_pair()
+    paste0(as.character(min(z$date)), " ～ ", as.character(max(z$date)))
+  })
+
+  # v7 首頁：全部比較數據只在同一批日期計算，不改變既有選股與回測模型。
+  v7_home_pair <- shiny::reactive({
+    a <- v4_hold()
+    b <- v4_bench()
+    shiny::req(!is.null(a), !is.null(b))
+    a <- data.frame(date = as.Date(a$date), p10 = as.numeric(a$value))
+    b <- data.frame(date = as.Date(b$date), etf = as.numeric(b$value))
+    z <- merge(a, b, by = "date")
+    z <- z[order(z$date), , drop = FALSE]
+    z <- z[is.finite(z$p10) & is.finite(z$etf) & z$p10 > 0 & z$etf > 0, , drop = FALSE]
+    shiny::req(nrow(z) >= 2)
+    # 同一天共同基準 = 1.00
+    z$p10 <- z$p10 / z$p10[1]
+    z$etf <- z$etf / z$etf[1]
+    z
+  })
+
+  v7_home_stats <- shiny::reactive({
+    z <- v7_home_pair()
+    metric <- function(v) {
+      r <- diff(log(v))
+      days <- length(r)
+      ret <- tail(v, 1) / v[1] - 1
+      dd <- min(v / cummax(v) - 1)
+      # 樣本不足時不提供容易誤導的年化數值
+      ann <- if (days >= 21) (tail(v, 1) / v[1])^(252 / days) - 1 else NA_real_
+      vol <- if (days >= 21 && stats::sd(r) > 0) stats::sd(r) * sqrt(252) else NA_real_
+      sharpe <- if (is.finite(vol) && vol > 0) mean(r) * 252 / vol else NA_real_
+      c(ret = ret, ann = ann, mdd = dd, vol = vol, sharpe = sharpe)
+    }
+    list(p10 = metric(z$p10), etf = metric(z$etf))
+  })
+
+  # v35 數字：僅報酬類以正向柔綠、負向柔紅；波動、回撤、Sharpe 等維持中性色。
+  v8_color_value <- function(x, label, use_color = TRUE) {
+    cls <- if (!use_color || !is.finite(x)) "v8-flat" else
+      if (x > 0) "v8-up" else if (x < 0) "v8-down" else "v8-flat"
+    shiny::span(class=cls, label)
+  }
+  for (k in c("ret", "ann", "mdd", "vol", "sharpe")) {
+    local({
+      key <- k
+      format_metric <- function(v, difference=FALSE) {
+        if (length(v) != 1 || !is.finite(v)) return("—")
+        if (key == "sharpe") return(sprintf("%+.2f", v))
+        if (difference) return(sprintf("%+.2f pp", v * 100))
+        sprintf("%+.2f%%", v * 100)
+      }
+      output[[paste0("v7_10_", key)]] <- shiny::renderUI({
+        v <- v7_home_stats()$p10[[key]]
+        v8_color_value(v, format_metric(v), key %in% c("ret", "ann"))
+      })
+      output[[paste0("v7_50_", key)]] <- shiny::renderUI({
+        v <- v7_home_stats()$etf[[key]]
+        v8_color_value(v, format_metric(v), key %in% c("ret", "ann"))
+      })
+      output[[paste0("v7_diff_", key)]] <- shiny::renderUI({
+        x <- v7_home_stats()
+        v <- x$p10[[key]] - x$etf[[key]]
+        v8_color_value(v, format_metric(v, difference=TRUE), key %in% c("ret", "ann"))
+      })
+    })
+  }
+
+  # v9：圖表日期獨立可選，不改 v7_home_pair / v7_home_stats 的本期統計口徑。
+  # 採當前十檔及當前權重的歷史回溯試算，不能宣稱是當時的歷史選股回測。
+  v9_available_prices <- shiny::reactive({
+    pm <- v4_pm()
+    ww <- v4_w()
+    symbols <- names(ww)
+    shiny::req(length(symbols) > 0, all(symbols %in% colnames(pm)), "0050" %in% colnames(pm))
+    # 保持同日共同資料，不以前一天價格填補缺漏。
+    m <- pm[, c(symbols, "0050"), drop=FALSE]
+    ok <- apply(m, 1, function(row) all(is.finite(row) & row > 0))
+    m <- m[ok, , drop=FALSE]
+    shiny::req(nrow(m) >= 3)
+    m
+  })
+
+  v9_slice_pair <- function(selected_range) {
+    shiny::req(!is.null(selected_range), length(selected_range)==2)
+    m <- v9_available_prices()
+    dates <- as.Date(rownames(m))
+    take <- which(dates >= as.Date(selected_range[1]) & dates <= as.Date(selected_range[2]))
+    shiny::validate(shiny::need(length(take) >= 3, "選定期間共同有效交易日不足，請放寬日期範圍。"))
+    m <- m[take, , drop=FALSE]
+    symbols <- setdiff(colnames(m), "0050")
+    ww <- v4_w()[symbols]
+    ww <- as.numeric(ww / sum(ww))
+    relative <- sweep(m[, symbols, drop=FALSE], 2, m[1,symbols], "/")
+    p10 <- as.numeric(relative %*% ww)
+    etf <- as.numeric(m[, "0050"] / m[1, "0050"])
+    data.frame(date=as.Date(rownames(m)), p10=p10, etf=etf)
+  }
+
+  v9_curve_pair <- shiny::reactive({ v9_slice_pair(input$v9_curve_range) })
+  v9_daily_pair <- shiny::reactive({ v9_slice_pair(input$v9_daily_range) })
+  output$v9_curve_actual_range <- shiny::renderText({
+    z <- v9_curve_pair()
+    paste0("實際共同交易期間：",min(z$date)," 至 ",max(z$date),"｜",nrow(z)," 個交易日")
+  })
+  output$v9_daily_actual_range <- shiny::renderText({
+    z <- v9_daily_pair()
+    paste0("實際共同交易期間：",min(z$date)," 至 ",max(z$date),"｜",nrow(z)," 個交易日")
+  })
+  output$v7_home_curve <- shiny::renderPlot({
+    z <- v9_curve_pair()
+    d <- rbind(data.frame(date=z$date, pct=(z$p10-1)*100, label="0010"),
+               data.frame(date=z$date, pct=(z$etf-1)*100, label="0050"))
+    ggplot2::ggplot(d, ggplot2::aes(x=date, y=pct, colour=label)) +
+      ggplot2::geom_hline(yintercept=0, linetype="dashed", colour="gray75") +
+      ggplot2::geom_line(linewidth=1.2, na.rm=TRUE) +
+      ggplot2::scale_colour_manual(values=c("0010"="#365F87", "0050"="#CF9448")) +
+      ggplot2::scale_y_continuous(labels=function(x) sprintf("%+.1f%%",x)) +
+      ggplot2::labs(x=NULL, y="累積報酬率", colour=NULL) +
+      ggplot2::theme_minimal(base_size=13) +
+      ggplot2::theme(legend.position="bottom", panel.grid.minor=ggplot2::element_blank())
+  })
+
+  v8_daily <- shiny::reactive({
+    z <- v9_daily_pair()
+    daily <- data.frame(date=z$date[-1],
+                        p10=100*diff(log(z$p10)),
+                        etf=100*diff(log(z$etf)))
+    daily[is.finite(daily$p10) & is.finite(daily$etf), , drop=FALSE]
+  })
+  v8_daily_limits <- shiny::reactive({
+    z <- v8_daily()
+    vmax <- max(abs(c(z$p10,z$etf)), na.rm=TRUE)
+    if (!is.finite(vmax) || vmax <= 0) vmax <- 1
+    c(-vmax*1.12, vmax*1.12)
+  })
+  v8_daily_plot <- function(z, col, title) {
+    d <- data.frame(date=z$date, pct=z[[col]])
+    ggplot2::ggplot(d, ggplot2::aes(x=date,y=pct)) +
+      ggplot2::geom_hline(yintercept=0, colour="gray65") +
+      ggplot2::geom_col(ggplot2::aes(fill=pct>=0), width=.85, show.legend=FALSE) +
+      ggplot2::scale_fill_manual(values=c("TRUE"="#C04F58", "FALSE"="#278066")) +
+      ggplot2::scale_y_continuous(limits=v8_daily_limits(),labels=function(x) paste0(round(x,1),"%")) +
+      ggplot2::labs(x=NULL,y="日對數報酬率") +
+      ggplot2::theme_minimal(base_size=11) +
+      ggplot2::theme(panel.grid.minor=ggplot2::element_blank())
+  }
+  output$v8_p10_daily_log <- shiny::renderPlot({
+    z <- v8_daily(); shiny::req(nrow(z)>0)
+    v8_daily_plot(z,"p10", "0010")
+  })
+  output$v8_0050_daily_log <- shiny::renderPlot({
+    z <- v8_daily(); shiny::req(nrow(z)>0)
+    v8_daily_plot(z,"etf", "0050")
+  })
+
+  output$v8_market_log_return <- shiny::renderUI({
+    d <- selected_market_date()
+    z <- data() %>% dplyr::filter(symbol=="0050", date<=d, is.finite(log_return)) %>%
+      dplyr::arrange(dplyr::desc(date)) %>% dplyr::slice_head(n=1)
+    shiny::req(nrow(z)>0)
+    v <- z$log_return[1]
+    v8_color_value(v,sprintf("%+.2f%%",100*v))
+  })
+  output$v8_market_ytd <- shiny::renderUI({
+    d <- selected_market_date()
+    z <- data() %>% dplyr::filter(symbol=="0050", date<=d,
+       format(date,"%Y")==format(d,"%Y"), is.finite(adjusted)) %>% dplyr::arrange(date)
+    shiny::req(nrow(z)>=2)
+    v <- tail(z$adjusted,1)/head(z$adjusted,1)-1
+    v8_color_value(v,sprintf("%+.2f%%",100*v))
+  })
+
+  output$v7_home_result <- shiny::renderText({
+    a <- v7_home_stats()
+    extra <- (a$p10[["ret"]] - a$etf[["ret"]]) * 100
+    risk <- (a$p10[["vol"]] - a$etf[["vol"]]) * 100
+    direction <- if (extra > 0) "高於" else if (extra < 0) "低於" else "與其相同"
+    volatility <- if (!is.finite(risk)) "本期資料不足，暫不比較年化波動。" else
+      sprintf("年化波動相差 %+.2f 個百分點。", risk)
+    paste0("在本期共同日期的回溯試算中，0010 累積報酬", direction,
+           " 0050（差額 ", sprintf("%+.2f", extra), " 個百分點）。", volatility,
+           "這不是逐季實際選股績效，不能據此認定策略具有超額報酬能力。")
+  })
+
   v4_hold_ret <- shiny::reactive({
     h <- v4_hold()
     shiny::req(!is.null(h))
@@ -5275,9 +7121,7 @@ server <- function(input, output, session) {
     # 建立目前選擇股票的代表色
     # --------------------------------------------------------
     
-    plot_colors <- stock_colors[
-      symbols
-    ]
+    plot_colors <- v6_order_colors(symbols)
     
     # --------------------------------------------------------
     # 建立股票名稱
@@ -5371,7 +7215,7 @@ server <- function(input, output, session) {
       geom_hline(yintercept=0, linetype="dashed", color="#94a3b8") +
       geom_line(linewidth=1.0) +
       scale_color_manual(
-        values=stock_colors[symbols],
+        values=v6_order_colors(symbols),
         breaks=symbols,
         labels=setNames(get_stock_label(symbols), symbols),
         drop=FALSE
@@ -7859,10 +9703,10 @@ server <- function(input, output, session) {
       ) +
       scale_color_manual(
         values = c(
-          "Top5" = "#6f9fd0",
-          "Top10" = "#a28bd2",
-          "Bottom5" = "#dfb46f",
-          "0050" = "#5b8ecb"
+          "Top5" = "#365F87",
+          "Top10" = "#7D92BD",
+          "Bottom5" = "#8B7395",
+          "0050" = "#CF9448"
         )
       ) +
       scale_y_continuous(
@@ -8294,9 +10138,8 @@ server <- function(input, output, session) {
           x = date,
           y = cumulative
         ),
-        color = "red",
-        linewidth = 1,
-        linetype = "dashed"
+        color = "#CF9448",
+        linewidth = 1
       ) +
       
       labs(
@@ -10334,14 +12177,13 @@ server <- function(input, output, session) {
           y = benchmark_return,
           color = "0050"
         ),
-        linewidth = 1,
-        linetype = "dashed"
+        linewidth = 1
       ) +
       
       scale_color_manual(
         values = c(
-          "投資組合" = "steelblue",
-          "0050" = "red"
+          "投資組合" = "#365F87",
+          "0050" = "#CF9448"
         )
       ) +
       
@@ -10641,28 +12483,237 @@ server <- function(input, output, session) {
     )
   }, striped = TRUE, bordered = TRUE, hover = TRUE)
   
+  # v16 單檔 GARCH：只將既有數值轉為易懂的文字，沒有更動估計與預測
+  output$g16_one_summary <- shiny::renderUI({
+    a <- g10_one()
+    shiny::req(!is.null(a))
+    ratio <- a$ratio
+    if (!is.finite(ratio)) {
+      return(tags$div(
+        tags$p(class = "g16-insight-main", "目前無法比較預測與歷史波動"),
+        tags$p(class = "g16-insight-sub", "請確認該股票有足夠的資料，以及模型是否完成估計。")
+      ))
+    }
+    gap <- (ratio - 1) * 100
+    message <- if (ratio >= 1.10) {
+      paste0("預測波動比近一年歷史波動高約 ", sprintf("%.1f", gap), "%")
+    } else if (ratio <= 0.90) {
+      paste0("預測波動比近一年歷史波動低約 ", sprintf("%.1f", abs(gap)), "%")
+    } else {
+      paste0("預測波動與近一年歷史波動相近（差異約 ", sprintf("%+.1f", gap), "%）")
+    }
+    f <- a$fit
+    fit_status <- if (isTRUE(f$converged)) {
+      "模型估計已收斂。"
+    } else {
+      "模型估計尚未確認收斂，預測需審慎解讀。"
+    }
+    test_status <- if (!is.finite(f$lb_p)) {
+      "殘差檢定目前沒有可用 p 值。"
+    } else if (f$lb_p <= 0.05) {
+      "Ljung-Box 殘差檢定顯示可能仍有未捕捉的自相關。"
+    } else {
+      "Ljung-Box 殘差檢定未發現顯著自相關，但不代表模型一定正確。"
+    }
+    tags$div(
+      tags$p(class = "g16-insight-main", message),
+      tags$p(class = "g16-insight-sub", paste0(fit_status, " ", test_status)),
+      tags$p(class = "g16-insight-sub", "這裡預測的是波動大小，而不是未來股價漲跌方向。")
+    )
+  })
+
+  # v17 單檔 GARCH 圖表解讀：完全使用現有 g10_one()、garch11_forecast()
+  # 僅生成文字，未重新估計模型、也未更動原本 plotOutput 的資料定義。
+  g17_reading_box <- function(title, main, sub, variant = "forecast") {
+    tags$div(class = paste("g17-reading", if (identical(variant, "history")) "g17-history" else ""),
+      tags$p(class = "g17-reading-title", title),
+      tags$p(class = "g17-reading-line", main),
+      tags$p(class = "g17-reading-line", sub)
+    )
+  }
+
+  output$g17_forecast_readout <- shiny::renderUI({
+    a <- g10_one(); shiny::req(!is.null(a))
+    v <- sqrt(garch11_forecast(a$fit, 63) * GARCH_TD) / 100
+    if (length(v) != 63L || any(!is.finite(v)) || any(v < 0)) {
+      return(g17_reading_box("圖形解讀", "目前沒有足夠的預測數值可解讀。",
+                              "請確認模型是否完成估計。"))
+    }
+    first <- v[1]; last <- v[length(v)]
+    delta_pp <- 100 * (last - first)
+    # 小於 0.5 個百分點視為相近，避免對極小變化過度解讀。
+    if (abs(delta_pp) < 0.5) {
+      trend <- sprintf("綠線從 %.1f%% 到 %.1f%%，63 日內變化不大。", first * 100, last * 100)
+    } else {
+      direction <- if (delta_pp < 0) "逐漸下降" else "逐漸上升"
+      trend <- sprintf("綠線從 %.1f%% %s至 %.1f%%。", first * 100, direction, last * 100)
+      early <- abs(v[11] - v[1])
+      late <- abs(v[63] - v[53])
+      if (is.finite(early) && early > 0 && is.finite(late) && late <= 0.75 * early) {
+        trend <- paste0(trend, "後段變化幅度逐步放緩。")
+      }
+    }
+    benchmark <- a$real_vol
+    if (!is.finite(benchmark) || benchmark <= 0) {
+      against <- "近一年歷史波動基準目前無法比較。"
+    } else if (all(v >= benchmark)) {
+      against <- "整段預測均高於紅色歷史基準線。"
+    } else if (all(v <= benchmark)) {
+      against <- "整段預測均低於紅色歷史基準線。"
+    } else {
+      against <- "預測曲線在這段期間跨越了紅色歷史基準線。"
+    }
+    g17_reading_box("讀圖重點｜預測曲線", trend,
+      paste0(against, "紅虛線不是 GARCH 的長期均衡波動。"))
+  })
+
+  output$g17_history_readout <- shiny::renderUI({
+    a <- g10_one(); shiny::req(!is.null(a))
+    v <- as.numeric(a$fit$sigma2)
+    r <- as.numeric(a$returns)
+    n <- length(v); k <- length(r); window <- 21L
+    if (n < 42L || k < 42L || n != k) {
+      return(g17_reading_box("讀圖重點｜歷史對照", "目前歷史資料不足。",
+        "需有至少 42 個有效交易日資料。", "history"))
+    }
+    idx <- seq.int(max(1L, n - 249L), n)
+    # 與既有 g10_vol_path 使用同一套 21 日 RMS 年化估計，非標準差。
+    actual <- rep(NA_real_, k)
+    for (i in seq.int(window, k)) {
+      actual[i] <- sqrt(mean(r[(i - window + 1L):i]^2) * GARCH_TD) / 100
+    }
+    actual <- actual[idx]
+    fitted <- sqrt(v[idx] * GARCH_TD) / 100
+    valid <- is.finite(actual) & is.finite(fitted) & actual > 0 & fitted > 0
+    if (sum(valid) < 42L) {
+      return(g17_reading_box("讀圖重點｜歷史對照", "可比較的歷史資料不足。",
+        "模型配適與 21 日實現波動的定義不同，須謹慎對照。", "history"))
+    }
+    a0 <- actual[valid]; f0 <- fitted[valid]
+    mid <- stats::median(a0)
+    peak <- max(a0)
+    high_spike <- is.finite(mid) && mid > 0 && peak >= mid * 1.5
+    main <- if (high_spike) {
+      sprintf("灰線曾出現較明顯的波動高峰（最高約 %.1f%%）。", peak * 100)
+    } else {
+      sprintf("灰線的歷史最高波動約 %.1f%%，沒有特別突出的高峰。", peak * 100)
+    }
+    # 比較兩條線最近 21 日與前 21 日的平均變化，避免單日雜訊。
+    d_actual <- mean(tail(a0, 21L)) - mean(tail(a0, 42L)[1:21])
+    d_fitted <- mean(tail(f0, 21L)) - mean(tail(f0, 42L)[1:21])
+    cutoff <- 0.01  # 1 個百分點
+    sub <- if (d_actual >= cutoff && d_fitted >= cutoff) {
+      "最近幾週，灰線與藍線都呈上升趨勢。"
+    } else if (d_actual <= -cutoff && d_fitted <= -cutoff) {
+      "最近幾週，灰線與藍線都呈下降趨勢。"
+    } else if (abs(d_actual) < cutoff && abs(d_fitted) < cutoff) {
+      "最近幾週，兩條線的平均波動變化都不大。"
+    } else {
+      "最近幾週，灰線與藍線的變化沒有完全同步。"
+    }
+    g17_reading_box("讀圖重點｜歷史對照", main,
+      paste0(sub, "這是歷史配適對照，不代表未來預測一定準確。"), "history")
+  })
+
   # ----------------------------------------------------------
   # 2. 全成分股 GARCH 表（按鈕觸發 + 快取）
   # ----------------------------------------------------------
   
   g10_store <- shiny::reactiveVal(NULL)
-  
+  # 全體 GARCH 與單檔各自選擇估計視窗；結果附帶「上次實際使用」的設定。
+  g21_all_run_meta <- shiny::reactiveVal(NULL)
+  g21_window_name <- function(n) {
+    switch(as.character(n), `500` = "近 2 年", `1000` = "近 4 年",
+           `1500` = "近 6 年", paste0(n, " 個交易日"))
+  }
+
+  output$g21_window_label <- shiny::renderText({
+    n <- suppressWarnings(as.integer(input$g21_all_window))
+    if (length(n) != 1L || !is.finite(n)) return("近 4 年")
+    g21_window_name(n)
+  })
+
+  output$g21_all_status <- shiny::renderUI({
+    meta <- g21_all_run_meta()
+    g <- g10_store()
+    if (is.null(meta)) {
+      return(tags$div(class = "g21-status g21-status-empty",
+        "尚未估計：請選擇歷史資料期間，再按「執行全體 GARCH 估計」。"))
+    }
+    chosen <- suppressWarnings(as.integer(input$g21_all_window))
+    was <- g21_window_name(meta$window)
+    if (length(chosen) != 1L || !is.finite(chosen) || chosen != meta$window) {
+      return(tags$div(class = "g21-status g21-status-pending",
+        paste0("你已更改估計期間，但圖表仍是使用「", was,
+               "」資料的上一次結果；請重新按估計以套用新設定。")))
+    }
+    tags$div(class = "g21-status g21-status-ready",
+      paste0("目前圖表使用：", was, "（最多 ", format(meta$window, big.mark = ","),
+             " 筆日報酬）估計，預測未來 63 個交易日。",
+             if (is.null(g)) "本次未取得有效估計結果。" else ""))
+  })
+
   shiny::observeEvent(input$g10_run_all, {
+    chosen_window <- suppressWarnings(as.integer(input$g21_all_window))
+    if (length(chosen_window) != 1L || !(chosen_window %in% c(500L, 1000L, 1500L))) {
+      chosen_window <- 1000L
+    }
     d <- as.data.frame(data())
     syms <- stock_info$symbol
     withProgress(message = "估計 GARCH(1,1)…", value = 0, {
       tbl <- p10_garch_table(
         d, syms,
-        window = as.integer(input$g10_window),
+        window = chosen_window,
         horizon = 63,
         progress = function(k, n, s) {
           setProgress(k / n, detail = paste0("第 ", k, " / ", n, " 檔：", s))
         }
       )
     })
+    g21_all_run_meta(list(window = chosen_window))
     g10_store(tbl)
   })
   
+  # v20：全體預測波動排名，只需要有效預測值；歷史波動不影響股票納入。
+  # 共用 v19 的既有快取與輸出 ID，避免影響其他頁面。
+  g19_g_valid <- shiny::reactive({
+    g <- g10_store()
+    shiny::req(!is.null(g), is.data.frame(g))
+    valid <- is.finite(g$forecast_vol) & g$forecast_vol > 0
+    g[valid, , drop = FALSE]
+  })
+
+  g18_stat_box <- function(label, value, sub = "", tone = "neutral") {
+    class_name <- paste("g18-stat", paste0("g35-tone-", tone))
+    tags$div(class = class_name,
+      tags$span(class = "g18-stat-label", label),
+      tags$strong(class = "g18-stat-value", value),
+      tags$span(class = "g18-stat-sub", sub))
+  }
+
+  output$g18_g_summary <- shiny::renderUI({
+    g <- g10_store()
+    if (is.null(g) || !is.data.frame(g) || !nrow(g)) {
+      return(tags$div(class = "g18-placeholder", "按下「執行全體 GARCH 估計」後，這裡會顯示估計結果與波動比較。"))
+    }
+    x <- g19_g_valid()
+    tags$div(class = "g18-stat-grid",
+      g18_stat_box("有效預測股票", paste0(nrow(x), " 檔"), paste0("全體估計產生 ", nrow(g), " 筆結果；有效預測值列入排名")),
+      g18_stat_box("預測年化波動中位數", if (nrow(x)) sprintf("%.1f%%", 100 * stats::median(x$forecast_vol)) else "—", "所有有效預測股票的中位數，非 0010 組合波動")
+    )
+  })
+
+  output$g18_g_chart_box <- shiny::renderUI({
+    g <- g10_store()
+    if (is.null(g) || !is.data.frame(g)) {
+      return(tags$div(class = "g18-placeholder", "估計完成後將顯示全部有效股票的預測波動單色排名圖。"))
+    }
+    x <- g19_g_valid()
+    if (!nrow(x)) return(tags$div(class = "g18-placeholder", "目前沒有有效的 GARCH 預測波動數值，請檢查估計結果。"))
+    tags$div(class = "g19-all-chart",
+      plotOutput("g19_all_vol_bars", height = paste0(max(450L, nrow(x) * 32L), "px")))
+  })
+
   output$g10_all_table <- shiny::renderTable({
     g <- g10_store()
     if (is.null(g)) return(data.frame(提示 = "請先按上方按鈕估計"))
@@ -10681,26 +12732,204 @@ server <- function(input, output, session) {
     )
     out[order(g$ratio), , drop = FALSE]
   }, striped = TRUE, bordered = TRUE, hover = TRUE)
-  
-  output$g10_ratio_bar <- shiny::renderPlot({
-    g <- g10_store()
-    shiny::req(!is.null(g))
-    x <- g[is.finite(g$ratio), , drop = FALSE]
-    x <- x[order(x$ratio), , drop = FALSE]
-    labs <- paste0(get_stock_name(x$symbol), "(", x$symbol, ")")
-    x$label <- factor(labs, levels = labs)
-    ggplot2::ggplot(x, ggplot2::aes(x = label, y = ratio, fill = ratio)) +
-      ggplot2::geom_col(width = 0.75) +
-      ggplot2::geom_hline(yintercept = 1, linetype = 2) +
+
+  output$g19_all_vol_bars <- shiny::renderPlot({
+    x <- g19_g_valid()
+    shiny::req(nrow(x) > 0)
+    x <- x[order(x$forecast_vol, decreasing = TRUE), , drop = FALSE]
+    labs <- paste0(get_stock_name(x$symbol), "（", x$symbol, "）")
+    d <- data.frame(label = factor(labs, levels = rev(labs)),
+                    value = as.numeric(x$forecast_vol), stringsAsFactors = FALSE)
+    ggplot2::ggplot(d, ggplot2::aes(x = label, y = value)) +
+      ggplot2::geom_col(fill = "#62839D", width = .7) +
       ggplot2::coord_flip() +
-      ggplot2::scale_fill_gradient2(midpoint = 1, low = "#1565c0", mid = "#ffffff", high = "#c62828") +
-      ggplot2::labs(title = "預測波動 ÷ 近一年實現波動", x = NULL, y = "比值") +
-      ggplot2::theme_minimal() +
-      ggplot2::theme(legend.position = "none",
-                     axis.text.y = ggplot2::element_text(size = 8),
-                     plot.title = ggplot2::element_text(hjust = 0.5, face = "bold"))
+      ggplot2::scale_y_continuous(labels = function(z) sprintf("%.0f%%", 100 * z),
+                                  expand = ggplot2::expansion(mult = c(0, .20))) +
+      ggplot2::geom_text(ggplot2::aes(label = sprintf("%.1f%%", 100 * value)),
+                         hjust = -0.12, size = 3.1, colour = "#3e607b") +
+      ggplot2::labs(x = NULL, y = "預測年化波動率") +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(axis.text.y = ggplot2::element_text(size = 9),
+                     panel.grid.major.y = ggplot2::element_blank())
   })
-  
+
+  # v18：季度回測「評分年度」整理；讀取 v5_server.R 的 v5_bt()。
+  # 日期篩選絕不觸發 v5_backtest_v4 的再次估計。
+  g18_bt_yearly <- shiny::reactive({
+    r <- v5_bt()
+    shiny::req(!is.null(r), is.data.frame(r$quarters), nrow(r$quarters) > 0)
+    q <- r$quarters
+    y <- format(as.Date(q$評分日), "%Y")
+    groups <- split(q, y)
+    rows <- lapply(names(groups), function(year) {
+      z <- groups[[year]]
+      a <- as.numeric(z$淨報酬)
+      b <- as.numeric(z$基準0050)
+      ok <- is.finite(a) & is.finite(b)
+      c0010 <- if (length(a) && all(is.finite(a))) prod(1 + a) - 1 else NA_real_
+      c0050 <- if (length(b) && all(is.finite(b))) prod(1 + b) - 1 else NA_real_
+      data.frame(
+        year = year,
+        n = nrow(z),
+        ret0010 = c0010,
+        ret0050 = c0050,
+        gap = c0010 - c0050,
+        win = if (any(ok)) sum(a[ok] > b[ok]) else NA_integer_,
+        compared = sum(ok),
+        cost = sum(as.numeric(z$成本合計), na.rm = TRUE),
+        stringsAsFactors = FALSE
+      )
+    })
+    ans <- do.call(rbind, rows)
+    ans[order(ans$year), , drop = FALSE]
+  })
+
+  shiny::observeEvent(v5_bt(), {
+    years <- g18_bt_yearly()$year
+    cur <- shiny::isolate(input$g18_bt_year)
+    if (is.null(cur) || !cur %in% c("all", years)) cur <- "all"
+    shiny::updateSelectInput(session, "g18_bt_year",
+      choices = c("全部年度" = "all", stats::setNames(years, paste0(years, " 年"))),
+      selected = cur)
+  })
+
+  g18_bt_quarters <- shiny::reactive({
+    r <- v5_bt()
+    shiny::req(!is.null(r), is.data.frame(r$quarters), nrow(r$quarters) > 0)
+    q <- r$quarters
+    y <- input$g18_bt_year
+    if (!is.null(y) && y != "all") q <- q[format(as.Date(q$評分日), "%Y") == y, , drop = FALSE]
+    q
+  })
+
+  g18_pct <- function(z, digits = 2L) {
+    if (length(z) != 1L || !is.finite(z)) return("—")
+    sprintf(paste0("%+.", digits, "f%%"), z * 100)
+  }
+  g19_pp <- function(z) {
+    if (length(z) != 1L || !is.finite(z)) return("—")
+    sprintf("%+.2f 百分點", z * 100)
+  }
+  g18_money <- function(z) {
+    if (length(z) != 1L || !is.finite(z)) return("—")
+    paste0("NT$ ", formatC(round(z), format = "d", big.mark = ","))
+  }
+
+  # v35｜季度表格的正負色彩。只接受程式計算的數值，不改動任何收益或回測公式。
+  g35_tone <- function(x) {
+    if (length(x) != 1L || !is.finite(x) || x == 0) return("neutral")
+    if (x > 0) "positive" else "negative"
+  }
+
+  g35_color_table <- function(df, numeric_tones = list()) {
+    if (!is.data.frame(df)) return(NULL)
+    header_cells <- lapply(names(df), function(label) tags$th(scope = "col", label))
+    header <- do.call(tags$tr, header_cells)
+    body <- lapply(seq_len(nrow(df)), function(i) {
+      cells <- lapply(seq_along(df), function(j) {
+        key <- names(df)[j]
+        colored <- key %in% names(numeric_tones)
+        cls <- if (colored) paste("g35-number", paste0("g35-", g35_tone(numeric_tones[[key]][i]))) else NULL
+        tags$td(class = cls, as.character(df[[j]][i]))
+      })
+      do.call(tags$tr, cells)
+    })
+    tags$table(class = "table table-striped table-bordered table-hover g35-colored-table",
+      tags$thead(header), tags$tbody(body))
+  }
+
+  output$g18_bt_summary <- shiny::renderUI({
+    # eventReactive 尚未執行時會 req()，先檢查按鈕次數才能顯示提示。
+    if (is.null(input$v5_run_bt) || input$v5_run_bt < 1) {
+      return(tags$div(class = "g18-placeholder", "按下「執行完整季度回測」後，這裡會顯示所選年份的績效摘要。"))
+    }
+    r <- v5_bt()
+    if (is.null(r)) return(tags$div(class = "g18-placeholder", "本次回測無可用結果。"))
+    q <- g18_bt_quarters()
+    if (!nrow(q)) return(tags$div(class = "g18-placeholder", "該年度沒有已完成的回測季度。"))
+    ra <- as.numeric(q$淨報酬)
+    rb <- as.numeric(q$基準0050)
+    valid <- is.finite(ra) & is.finite(rb)
+    ret_a <- if (all(is.finite(ra))) prod(1 + ra) - 1 else NA_real_
+    ret_b <- if (all(is.finite(rb))) prod(1 + rb) - 1 else NA_real_
+    w <- sum(ra[valid] > rb[valid])
+    n <- sum(valid)
+    y <- input$g18_bt_year
+    label <- if (is.null(y) || identical(y, "all")) "全部評分年度" else paste0(y, " 年評分季度")
+    tags$div(
+      tags$p(class = "g18-hint", paste0("目前查看：", label, "（", nrow(q), " 季）")),
+      tags$div(class = "g18-stat-grid g19-bt-stat-grid",
+        g18_stat_box("0010 期間報酬（扣成本）", g18_pct(ret_a), "季度淨報酬複利串接", tone = g35_tone(ret_a)),
+        g18_stat_box("0050 同期報酬", g18_pct(ret_b), "相同回測季度比較", tone = g35_tone(ret_b)),
+        g18_stat_box("勝過 0050 的季度", if (n) sprintf("%d / %d（%.0f%%）", w, n, 100 * w / n) else "—", "季度勝率，不等於累積報酬"),
+        g18_stat_box("累積報酬差距", g19_pp(ret_a - ret_b), "0010 累積報酬 − 0050 累積報酬", tone = g35_tone(ret_a - ret_b)),
+        g18_stat_box("累計交易成本", g18_money(sum(as.numeric(q$成本合計), na.rm = TRUE)), "所選季度的模擬交易費用")
+      )
+    )
+  })
+
+  output$g18_bt_year_plot <- shiny::renderPlot({
+    y <- g18_bt_yearly()
+    shiny::req(nrow(y) > 0)
+    df <- rbind(
+      data.frame(year = y$year, value = y$ret0010, series = "0010（扣成本）"),
+      data.frame(year = y$year, value = y$ret0050, series = "0050"))
+    df <- df[is.finite(df$value), , drop = FALSE]
+    shiny::req(nrow(df) > 0)
+    df$year <- factor(df$year, levels = y$year)
+    ggplot2::ggplot(df, ggplot2::aes(x = year, y = value, fill = series)) +
+      ggplot2::geom_hline(yintercept = 0, colour = "#a6b2bc", linewidth = 0.4) +
+      ggplot2::geom_col(position = ggplot2::position_dodge(width = .74), width = .64) +
+      ggplot2::scale_fill_manual(values = c("0010（扣成本）" = "#365F87", "0050" = "#CF9448")) +
+      ggplot2::scale_y_continuous(labels = function(x) sprintf("%+.0f%%", 100*x)) +
+      ggplot2::labs(x = "評分年度", y = "該年度評分季度報酬", fill = NULL) +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(legend.position = "bottom", panel.grid.major.x = ggplot2::element_blank())
+  })
+
+  output$g18_bt_year_table <- shiny::renderUI({
+    y <- g18_bt_yearly()
+    df <- data.frame(
+      評分年度 = y$year,
+      回測季數 = y$n,
+      `0010淨報酬` = vapply(y$ret0010, g18_pct, character(1)),
+      `0050同期報酬` = vapply(y$ret0050, g18_pct, character(1)),
+      `累積報酬差距` = vapply(y$gap, g19_pp, character(1)),
+      勝過0050 = ifelse(y$compared > 0, paste0(y$win, "/", y$compared), "—"),
+      交易成本 = vapply(y$cost, g18_money, character(1)),
+      check.names = FALSE, stringsAsFactors = FALSE)
+    tones <- list()
+    tones[["0010淨報酬"]] <- y$ret0010
+    tones[["0050同期報酬"]] <- y$ret0050
+    tones[["累積報酬差距"]] <- y$gap
+    g35_color_table(df, tones)
+  })
+
+  output$g18_bt_quarter_title <- shiny::renderText({
+    y <- input$g18_bt_year
+    if (is.null(y) || identical(y, "all")) "最近八季績效" else paste0(y, " 年評分季度績效")
+  })
+
+  output$g18_bt_quarter_table <- shiny::renderUI({
+    q <- g18_bt_quarters()
+    y <- input$g18_bt_year
+    if (is.null(y) || identical(y, "all")) q <- utils::tail(q, 8)
+    df <- data.frame(
+      評分日 = format(as.Date(q$評分日), "%Y-%m-%d"),
+      成交日 = format(as.Date(q$成交日), "%Y-%m-%d"),
+      出場日 = format(as.Date(q$出場日), "%Y-%m-%d"),
+      `0010淨報酬` = vapply(q$淨報酬, g18_pct, character(1)),
+      `0050同期報酬` = vapply(q$基準0050, g18_pct, character(1)),
+      超額 = vapply(q$淨報酬 - q$基準0050, g18_pct, character(1)),
+      跨年 = ifelse(format(as.Date(q$評分日), "%Y") != format(as.Date(q$出場日), "%Y"), "是", "否"),
+      check.names = FALSE, stringsAsFactors = FALSE)
+    tones <- list()
+    tones[["0010淨報酬"]] <- as.numeric(q$淨報酬)
+    tones[["0050同期報酬"]] <- as.numeric(q$基準0050)
+    tones[["超額"]] <- as.numeric(q$淨報酬 - q$基準0050)
+    g35_color_table(df, tones)
+  })
+
   # ----------------------------------------------------------
   # 3. 0010 組合
   # ----------------------------------------------------------
@@ -11038,6 +13267,112 @@ server <- function(input, output, session) {
   }, striped = TRUE, bordered = TRUE, hover = TRUE)
   
   # ============================================================
+  # v10：0010 組合頁呈現用統計摘要與配置圖（只讀 v4_sel/v4_w）
+  # ============================================================
+  output$g10_v10_count <- shiny::renderText({
+    paste0(nrow(v4_sel()), " 檔")
+  })
+
+  g10_v10_display <- shiny::reactive({
+    s <- v4_sel()
+    w <- v4_w()
+    shiny::req(nrow(s) > 0, length(w) > 0)
+    x <- data.frame(
+      symbol = as.character(s$symbol),
+      name = as.character(s$name),
+      mom = as.numeric(s$mom_score),
+      risk = as.numeric(s$risk_score),
+      score = as.numeric(s$p10_smooth),
+      weight = as.numeric(w[s$symbol]),
+      stringsAsFactors = FALSE
+    )
+    shiny::req(all(is.finite(x$weight)))
+    x
+  })
+
+  output$g10_v10_mom <- shiny::renderText({
+    d <- g10_v10_display()
+    sprintf("%.1f / 100", stats::weighted.mean(d$mom, d$weight, na.rm = TRUE))
+  })
+
+  output$g10_v10_risk <- shiny::renderText({
+    d <- g10_v10_display()
+    sprintf("%.1f / 100", stats::weighted.mean(d$risk, d$weight, na.rm = TRUE))
+  })
+
+  output$g10_v10_maxw <- shiny::renderText({
+    sprintf("%.1f%%", 100 * max(g10_v10_display()$weight))
+  })
+
+  output$g10_v10_simple_table <- shiny::renderTable({
+    d <- g10_v10_display()
+    data.frame(
+      股票 = paste0(d$name, "（", d$symbol, "）"),
+      `動能分` = sprintf("%.1f", d$mom),
+      `風險分` = sprintf("%.1f", d$risk),
+      `綜合分` = sprintf("%.1f", d$score),
+      `權重` = sprintf("%.1f%%", d$weight * 100),
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+  }, striped = TRUE, bordered = TRUE, hover = TRUE)
+
+  # v11：用真實選股與資金權重產生可直接辨識的持股長條（只改呈現）
+  output$g10_v11_weight_bars <- shiny::renderUI({
+    d <- tryCatch(g10_v10_display(), error = function(e) NULL)
+    if (is.null(d) || !nrow(d)) {
+      return(shiny::div(class = "g10-v11-subnote",
+        "目前無法取得持股資料。請確認已載入股票資料並完成 0010 選股評分。"))
+    }
+    d <- d[is.finite(d$weight) & d$weight >= 0, , drop = FALSE]
+    if (!nrow(d)) {
+      return(shiny::div(class = "g10-v11-subnote", "尚無有效的持股配置權重。"))
+    }
+    d <- d[order(-d$weight, d$symbol), , drop = FALSE]
+    cap <- suppressWarnings(as.numeric(input$g10_cap))
+    if (!length(cap) || !is.finite(cap)) cap <- 0.20
+    upper <- max(cap, d$weight, 0.10, na.rm = TRUE)
+    rows <- lapply(seq_len(nrow(d)), function(i) {
+      nm <- as.character(d$name[i])
+      if (is.na(nm) || !nzchar(trimws(nm))) nm <- as.character(d$symbol[i])
+      label <- paste0(nm, "（", d$symbol[i], "）")
+      pct <- sprintf("%.1f%%", 100 * d$weight[i])
+      bar_width <- max(0, min(100, 100 * d$weight[i] / upper))
+      shiny::div(class = "g10-v11-row",
+        shiny::span(class = "g10-v11-name", label),
+        shiny::div(class = "g10-v11-track",
+          shiny::div(class = "g10-v11-fill", style = sprintf("width:%.2f%%;", bar_width))),
+        shiny::strong(class = "g10-v11-value", pct))
+    })
+    do.call(shiny::tagList, rows)
+  })
+
+  output$g10_v10_weight_plot <- shiny::renderPlot({
+    d <- g10_v10_display()
+    d <- d[is.finite(d$weight) & d$weight >= 0, , drop = FALSE]
+    shiny::req(nrow(d) > 0)
+    d$label <- paste0(d$name, "（", d$symbol, "）")
+    d <- d[order(d$weight), , drop = FALSE]
+    d$label <- factor(d$label, levels = unique(d$label))
+    ggplot2::ggplot(d, ggplot2::aes(x = label, y = weight)) +
+      ggplot2::geom_col(fill = "#5d90c4", width = 0.68) +
+      ggplot2::geom_text(ggplot2::aes(label = sprintf("%.1f%%", weight * 100)),
+                         hjust = -0.15, size = 3.5, color = "#3f607b") +
+      ggplot2::coord_flip(clip = "off") +
+      ggplot2::scale_y_continuous(
+        labels = function(v) paste0(round(v * 100), "%"),
+        expand = ggplot2::expansion(mult = c(0, 0.22))) +
+      ggplot2::labs(x = NULL, y = "資金權重") +
+      ggplot2::theme_minimal(base_size = 12) +
+      ggplot2::theme(
+        panel.grid.major.y = ggplot2::element_blank(),
+        panel.grid.minor = ggplot2::element_blank(),
+        axis.text.y = ggplot2::element_text(color = "#45617a", size = 10),
+        axis.text.x = ggplot2::element_text(color = "#8295a8"),
+        axis.title.x = ggplot2::element_text(color = "#72869a"),
+        plot.margin = ggplot2::margin(6, 26, 6, 6))
+  })
+
+  # ============================================================
   # v4 覆寫：0010 組合頁改接「動能分 + 風險穩定分」
   # ============================================================
   
@@ -11064,7 +13399,13 @@ server <- function(input, output, session) {
     sel <- sel[sel$symbol %in% colnames(pm), , drop = FALSE]
     shiny::req(nrow(sel) >= 3)
     
-    w <- v4_weights(sel, scheme = "inv_vol", cap = 0.20)
+    # v14：與上方本期資金配置共用權重方式及單檔上限。
+    # 只同步「配置方法」，不把本期新名單套用到上一季持有追蹤。
+    scheme <- input$g10_scheme
+    if (is.null(scheme) || !scheme %in% c("inv_vol", "equal", "score")) scheme <- "inv_vol"
+    wt_cap <- suppressWarnings(as.numeric(input$g10_cap))
+    if (length(wt_cap) != 1L || !is.finite(wt_cap)) wt_cap <- 0.20
+    w <- v4_weights(sel, scheme = scheme, cap = wt_cap)
     i <- reb$idx
     buy <- unname(pm[i, sel$symbol]); names(buy) <- sel$symbol
     now <- unname(pm[nrow(pm), sel$symbol]); names(now) <- sel$symbol
@@ -11079,6 +13420,98 @@ server <- function(input, output, session) {
          ret = now / buy - 1)
   })
   
+  # v14：同一上季持股清單，依各種配置方式計算買進持有的單期試算。
+  # 調整後股價試算；不扣交易成本、不執行停損、不取代正式季度策略回測。
+  g10_v14_money <- function(x, signed = FALSE) {
+    if (length(x) != 1L || !is.finite(x)) return("資料不足")
+    val <- paste0("NT$ ", formatC(round(abs(x)), format = "d", big.mark = ","))
+    if (!signed) return(val)
+    paste0(if (x >= 0) "+" else "−", val)
+  }
+
+  g10_v14_pct <- function(x, signed = TRUE) {
+    if (length(x) != 1L || !is.finite(x)) return("資料不足")
+    sprintf(if (signed) "%+.2f%%" else "%.2f%%", x * 100)
+  }
+
+  g10_v14_financial <- function(track, weights, capital) {
+    capital <- suppressWarnings(as.numeric(capital))
+    if (length(capital) != 1L || !is.finite(capital) || capital <= 0) return(NULL)
+    symbols <- as.character(track$sel$symbol)
+    w <- as.numeric(weights[symbols])
+    b <- as.numeric(track$buy[symbols])
+    p <- as.numeric(track$now[symbols])
+    if (length(w) != length(symbols) || any(!is.finite(w)) ||
+        any(w < 0) || sum(w) <= 0 ||
+        any(!is.finite(b)) || any(!is.finite(p)) ||
+        any(b <= 0) || any(p <= 0)) return(NULL)
+    w <- w / sum(w)
+    r <- p / b - 1
+    initial <- capital * w
+    current <- initial * (1 + r)
+    total <- sum(current)
+    if (!is.finite(total) || total <= 0) return(NULL)
+    list(w = w, r = r, initial = initial, current = current,
+         profit = current - initial, total = total,
+         total_profit = total - capital, total_return = total / capital - 1,
+         current_w = current / total, capital = capital)
+  }
+
+  g10_v14_track_summary <- shiny::reactive({
+    t <- g10_track_v4()
+    g10_v14_financial(t, t$w, input$g10_capital)
+  })
+
+  output$g10_v14_track_period <- shiny::renderUI({
+    t <- g10_track_v4()
+    dates <- as.Date(rownames(v4_pm()))
+    end <- max(dates, na.rm = TRUE)
+    scheme <- switch(input$g10_scheme,
+      inv_vol = "波動度反比", equal = "等權重", score = "分數加權", "波動度反比")
+    shiny::div(class = "g10-v14-period",
+      paste0("試算區間：", as.character(t$date), " ～ ", as.character(end)),
+      "｜上季持股 ", nrow(t$sel), " 檔｜目前配置：", scheme,
+      "｜單檔上限：", sprintf("%.0f%%", 100 * (if (is.null(input$g10_cap) || !is.finite(input$g10_cap)) 0.20 else input$g10_cap)))
+  })
+
+  output$g10_v14_track_return <- shiny::renderUI({
+    z <- g10_v14_track_summary()
+    if (is.null(z)) return(shiny::span("資料不足"))
+    shiny::span(class = if (z$total_return >= 0) "g10-v14-positive" else "g10-v14-negative",
+                g10_v14_pct(z$total_return))
+  })
+  output$g10_v14_track_profit <- shiny::renderUI({
+    z <- g10_v14_track_summary()
+    if (is.null(z)) return(shiny::span("資料不足"))
+    shiny::span(class = if (z$total_profit >= 0) "g10-v14-positive" else "g10-v14-negative",
+                g10_v14_money(z$total_profit, signed = TRUE))
+  })
+  output$g10_v14_track_value <- shiny::renderUI({
+    z <- g10_v14_track_summary()
+    shiny::span(if (is.null(z)) "資料不足" else g10_v14_money(z$total))
+  })
+
+  output$g10_v14_track_compare <- shiny::renderTable({
+    t <- g10_track_v4()
+    capital <- input$g10_capital
+    cap <- suppressWarnings(as.numeric(input$g10_cap))
+    if (length(cap) != 1L || !is.finite(cap)) cap <- 0.20
+    options <- c(inv_vol = "波動度反比", equal = "等權重", score = "分數加權")
+    current <- input$g10_scheme
+    rows <- lapply(names(options), function(scheme) {
+      weights <- v4_weights(t$sel, scheme = scheme, cap = cap)
+      z <- g10_v14_financial(t, weights, capital)
+      data.frame(
+        配置方式 = paste0(options[[scheme]], if (identical(scheme, current)) "（目前）" else ""),
+        最大起始權重 = if (is.null(z)) "—" else g10_v14_pct(max(z$w), signed = FALSE),
+        組合累積報酬 = if (is.null(z)) "資料不足" else g10_v14_pct(z$total_return),
+        模擬總損益 = if (is.null(z)) "資料不足" else g10_v14_money(z$total_profit, TRUE),
+        目前模擬市值 = if (is.null(z)) "資料不足" else g10_v14_money(z$total),
+        check.names = FALSE, stringsAsFactors = FALSE)
+    })
+    do.call(rbind, rows)
+  }, striped = TRUE, bordered = TRUE, hover = TRUE)
+
   g10_cmp_v4 <- shiny::reactive({
     tr <- g10_track_v4()
     cur <- v4_sel()
@@ -11176,41 +13609,84 @@ server <- function(input, output, session) {
   
   output$g10_track <- shiny::renderTable({
     tr <- g10_track_v4()
+    symbols <- as.character(tr$sel$symbol)
+    z <- g10_v14_track_summary()
     g <- tryCatch(get("g10_store")(), error = function(e) NULL)
     fv <- NULL
-    if (!is.null(g)) fv <- g$forecast_vol[match(tr$sel$symbol, g$symbol)]
+    if (!is.null(g)) fv <- g$forecast_vol[match(symbols, g$symbol)]
     if (is.null(fv) || all(!is.finite(fv))) fv <- tr$sel$vol
     bad <- !is.finite(fv)
     fv[bad] <- tr$sel$vol[bad]
-    
+
     s <- fv / sqrt(252) * sqrt(21)
     stop_px <- tr$buy * (1 - input$g10_k_stop * s)
     take_px <- tr$buy * (1 + input$g10_k_take * s)
     status <- ifelse(tr$now <= stop_px, "已觸停損",
                      ifelse(tr$now >= take_px, "已觸停利", "持有中"))
     status[is.na(status)] <- "—"
-    
-    data.frame(
-      股票 = paste0(tr$sel$name, "（", tr$sel$symbol, "）"),
-      權重 = sprintf("%.1f%%", as.numeric(tr$w) * 100),
+
+    amt0 <- if (is.null(z)) rep(NA_real_, length(symbols)) else z$initial
+    amt1 <- if (is.null(z)) rep(NA_real_, length(symbols)) else z$current
+    gains <- if (is.null(z)) rep(NA_real_, length(symbols)) else z$profit
+    start_w <- if (is.null(z)) as.numeric(tr$w[symbols]) else z$w
+    end_w <- if (is.null(z)) rep(NA_real_, length(symbols)) else z$current_w
+
+    fmt_amt <- function(v) vapply(v, function(x) {
+      if (!is.finite(x)) return("—")
+      formatC(round(x), format = "d", big.mark = ",")
+    }, character(1))
+    fmt_change <- function(v) vapply(v, function(x) {
+      if (!is.finite(x)) return("—")
+      paste0(if (x >= 0) "+" else "−",
+             formatC(round(abs(x)), format = "d", big.mark = ","))
+    }, character(1))
+    fmt_weight <- function(v) ifelse(is.finite(v), sprintf("%.1f%%", 100 * v), "—")
+
+    individual <- data.frame(
+      股票 = paste0(tr$sel$name, "（", symbols, "）"),
+      起始權重 = fmt_weight(start_w),
+      目前權重 = fmt_weight(end_w),
+      起始金額 = fmt_amt(amt0),
+      目前市值 = fmt_amt(amt1),
+      模擬損益 = fmt_change(gains),
+      個股報酬 = ifelse(is.finite(tr$ret), sprintf("%+.2f%%", tr$ret * 100), "—"),
       買進價 = ifelse(is.finite(tr$buy), sprintf("%.2f", tr$buy), "—"),
       現價 = ifelse(is.finite(tr$now), sprintf("%.2f", tr$now), "—"),
-      報酬 = ifelse(is.finite(tr$ret), sprintf("%+.2f%%", tr$ret * 100), "—"),
       停損價 = ifelse(is.finite(stop_px), sprintf("%.2f", stop_px), "—"),
       停利價 = ifelse(is.finite(take_px), sprintf("%.2f", take_px), "—"),
       狀態 = status,
       check.names = FALSE, stringsAsFactors = FALSE
     )
+
+    cap <- suppressWarnings(as.numeric(input$g10_capital))
+    total <- data.frame(
+      股票 = "組合合計",
+      起始權重 = if (is.null(z)) "—" else "100.0%",
+      目前權重 = if (is.null(z)) "—" else "100.0%",
+      起始金額 = if (is.null(z)) "—" else fmt_amt(cap),
+      目前市值 = if (is.null(z)) "—" else fmt_amt(z$total),
+      模擬損益 = if (is.null(z)) "—" else fmt_change(z$total_profit),
+      個股報酬 = if (is.null(z)) "—" else g10_v14_pct(z$total_return),
+      買進價 = "—", 現價 = "—", 停損價 = "—", 停利價 = "—",
+      狀態 = "持有模擬合計",
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+    rbind(individual, total)
   }, striped = TRUE, bordered = TRUE, hover = TRUE)
-  
+
   output$g10_track_note <- shiny::renderUI({
-    div(class = "method-note",
-        "停損／停利距離 = k × 預測 21 日波動。波動估計優先採用 GARCH 預測值；若尚未執行全成分股估計，改用近一年實現波動。此為統計參考距離，非交易建議。")
+    z <- g10_v14_track_summary()
+    shiny::tagList(
+      shiny::div(class = "method-note",
+        "組合報酬採起始資金權重加權；期末權重由價格變動自然形成。所有方案使用同一批上季持股、相同季末收盤價與目前價格（調整後股價），不扣交易成本、不執行停損／停利交易，也不會改變正式季度回測。"),
+      shiny::div(class = "method-note",
+        "停損／停利距離 = k × 預測 21 日波動。優先使用 GARCH 預測值；若尚未估計則改用近一年實現波動。參考價不會因資金權重改變，也不是交易建議。"),
+      if (is.null(z)) shiny::div(class = "method-note",
+        "部分股票缺少有效的起始或目前價格，或模擬金額無效；本期整體績效暫不計算，以免低估風險或錯誤計入缺失資料。")
+    )
   })
-  
-  
-  
-  
+
+
   # ============================================================
   # 時間序列檢定（畫面）
   # ============================================================
